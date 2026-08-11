@@ -25,6 +25,12 @@ import {
   type ReviewDiffPreviewInput,
   type ReviewDiffPreviewSource,
   type VcsRef,
+  type VcsChange,
+  type VcsChangeFileInput,
+  type VcsChangeKind,
+  type VcsChangeLayer,
+  type VcsChangeMutationInput,
+  type VcsChangesResult,
 } from "@t3tools/contracts";
 import { dedupeRemoteBranchesWithLocalMatches, normalizeGitRemoteUrl } from "@t3tools/shared/git";
 import { compactTraceAttributes } from "@t3tools/shared/observability";
@@ -48,6 +54,7 @@ const RANGE_DIFF_PATCH_MAX_OUTPUT_BYTES = 59_000;
 const REVIEW_DIFF_PATCH_MAX_OUTPUT_BYTES = 120_000;
 const REVIEW_UNTRACKED_DIFF_MAX_OUTPUT_BYTES = 80_000;
 const REVIEW_DIFF_FILE_MAX_OUTPUT_BYTES = 1024 * 1024;
+const CHANGES_FILE_MAX_BYTES = 1024 * 1024;
 const WORKSPACE_FILES_MAX_OUTPUT_BYTES = 120_000;
 const STATUS_UPSTREAM_REFRESH_INTERVAL = Duration.seconds(15);
 const STATUS_UPSTREAM_REFRESH_TIMEOUT = Duration.seconds(5);
@@ -201,6 +208,133 @@ function parsePorcelainPath(line: string): string | null {
   const parts = line.trim().split(/\s+/g);
   const filePath = parts.at(-1) ?? "";
   return filePath.length > 0 ? filePath : null;
+}
+
+interface ExactStatusRecord {
+  readonly raw: string;
+  readonly path: string;
+  readonly oldPath: string | null;
+  readonly indexCode: string;
+  readonly worktreeCode: string;
+  readonly headHash: string;
+  readonly indexHash: string;
+  readonly unmerged: boolean;
+  readonly untracked: boolean;
+}
+
+interface ExactNumstat {
+  readonly path: string;
+  readonly oldPath: string | null;
+  readonly insertions: number;
+  readonly deletions: number;
+  readonly binary: boolean;
+}
+
+function splitFixedStatusFields(
+  value: string,
+  fixedFieldCount: number,
+): { readonly fields: ReadonlyArray<string>; readonly path: string } | null {
+  const fields: string[] = [];
+  let cursor = 2;
+  for (let index = 0; index < fixedFieldCount; index += 1) {
+    const separator = value.indexOf(" ", cursor);
+    if (separator < 0) return null;
+    fields.push(value.slice(cursor, separator));
+    cursor = separator + 1;
+  }
+  return { fields, path: value.slice(cursor) };
+}
+
+export function parseExactGitStatus(stdout: string): ReadonlyArray<ExactStatusRecord> {
+  const fields = stdout.split("\0");
+  const records: ExactStatusRecord[] = [];
+  for (let index = 0; index < fields.length; index += 1) {
+    const value = fields[index] ?? "";
+    if (value.startsWith("? ")) {
+      records.push({
+        raw: value,
+        path: value.slice(2),
+        oldPath: null,
+        indexCode: ".",
+        worktreeCode: "A",
+        headHash: "missing",
+        indexHash: "missing",
+        unmerged: false,
+        untracked: true,
+      });
+      continue;
+    }
+    if (value.startsWith("! ") || value.startsWith("# ")) continue;
+
+    const recordType = value[0];
+    const parsed =
+      recordType === "1"
+        ? splitFixedStatusFields(value, 7)
+        : recordType === "2"
+          ? splitFixedStatusFields(value, 8)
+          : recordType === "u"
+            ? splitFixedStatusFields(value, 9)
+            : null;
+    if (!parsed || parsed.path.length === 0) continue;
+
+    const xy = parsed.fields[0] ?? "..";
+    const oldPath = recordType === "2" ? (fields[++index] ?? null) : null;
+    records.push({
+      raw: oldPath === null ? value : `${value}\0${oldPath}`,
+      path: parsed.path,
+      oldPath,
+      indexCode: xy[0] ?? ".",
+      worktreeCode: xy[1] ?? ".",
+      headHash: parsed.fields[recordType === "u" ? 6 : 5] ?? "missing",
+      indexHash: parsed.fields[recordType === "u" ? 7 : 6] ?? "",
+      unmerged: recordType === "u",
+      untracked: false,
+    });
+  }
+  return records;
+}
+
+export function parseExactGitNumstat(stdout: string): ReadonlyArray<ExactNumstat> {
+  const fields = stdout.split("\0");
+  const entries: ExactNumstat[] = [];
+  for (let index = 0; index < fields.length; index += 1) {
+    const value = fields[index] ?? "";
+    if (value.length === 0) continue;
+    const firstTab = value.indexOf("\t");
+    const secondTab = firstTab < 0 ? -1 : value.indexOf("\t", firstTab + 1);
+    if (firstTab < 0 || secondTab < 0) continue;
+    const addedRaw = value.slice(0, firstTab);
+    const deletedRaw = value.slice(firstTab + 1, secondTab);
+    const inlinePath = value.slice(secondTab + 1);
+    const oldPath = inlinePath.length === 0 ? (fields[++index] ?? null) : null;
+    const currentPath = inlinePath.length === 0 ? (fields[++index] ?? "") : inlinePath;
+    if (currentPath.length === 0) continue;
+    const insertions = Number.parseInt(addedRaw, 10);
+    const deletions = Number.parseInt(deletedRaw, 10);
+    entries.push({
+      path: currentPath,
+      oldPath,
+      insertions: Number.isFinite(insertions) ? insertions : 0,
+      deletions: Number.isFinite(deletions) ? deletions : 0,
+      binary: addedRaw === "-" || deletedRaw === "-",
+    });
+  }
+  return entries;
+}
+
+function changeKind(code: string, unmerged: boolean): VcsChangeKind | null {
+  if (unmerged || code === "U") return "unmerged";
+  if (code === "A" || code === "?") return "added";
+  if (code === "M") return "modified";
+  if (code === "D") return "deleted";
+  if (code === "R") return "renamed";
+  if (code === "C") return "copied";
+  if (code === "T") return "type-changed";
+  return null;
+}
+
+function normalizeObjectId(value: string): string {
+  return /^0+$/.test(value) || value.length === 0 ? "missing" : value;
 }
 
 function filterBranchesForListQuery(
@@ -1808,9 +1942,473 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       })),
     );
 
+  const hashChangeIdentity = Effect.fn("GitVcsDriver.hashChangeIdentity")(function* (
+    value: string,
+  ) {
+    return yield* crypto.digest("SHA-256", new TextEncoder().encode(value)).pipe(
+      Effect.map(Encoding.encodeHex),
+      Effect.mapError(
+        (cause) =>
+          new GitCommandError({
+            operation: "GitVcsDriver.hashChangeIdentity",
+            command: "crypto.digest SHA-256",
+            cwd: "(memory)",
+            detail: "Failed to hash Git change identity.",
+            cause,
+          }),
+      ),
+    );
+  });
+
+  const getChanges: GitVcsDriver.GitVcsDriver["Service"]["getChanges"] = Effect.fn(
+    "GitVcsDriver.getChanges",
+  )(function* (input) {
+    const status = yield* executeGitWithStableDiagnostics(
+      "GitVcsDriver.getChanges.status",
+      input.cwd,
+      ["status", "--porcelain=v2", "-z", "--untracked-files=all"],
+      { maxOutputBytes: 4 * DEFAULT_MAX_OUTPUT_BYTES },
+    );
+    const records = parseExactGitStatus(status.stdout);
+    const objectIds = Array.from(
+      new Set(
+        records.flatMap((record) =>
+          [record.headHash, record.indexHash]
+            .map(normalizeObjectId)
+            .filter((objectId) => objectId !== "missing"),
+        ),
+      ),
+    );
+    const blobSizes = new Map<string, number>();
+    if (objectIds.length > 0) {
+      const objects = yield* executeGitWithStableDiagnostics(
+        "GitVcsDriver.getChanges.objectSizes",
+        input.cwd,
+        ["cat-file", "--batch-check=%(objectname) %(objecttype) %(objectsize)"],
+        {
+          stdin: `${objectIds.join("\n")}\n`,
+          maxOutputBytes: Math.max(DEFAULT_MAX_OUTPUT_BYTES, objectIds.length * 96),
+        },
+      );
+      for (const line of objects.stdout.trim().split(/\r?\n/g)) {
+        const [objectId, type, sizeRaw] = line.split(" ");
+        const size = Number.parseInt(sizeRaw ?? "", 10);
+        if (objectId && type === "blob" && Number.isFinite(size)) blobSizes.set(objectId, size);
+      }
+    }
+    const [stagedNumstat, unstagedNumstat] = yield* Effect.all(
+      [
+        executeGitWithStableDiagnostics(
+          "GitVcsDriver.getChanges.stagedNumstat",
+          input.cwd,
+          ["diff", "--cached", "--numstat", "-z", "--find-renames", "--"],
+          { maxOutputBytes: 4 * DEFAULT_MAX_OUTPUT_BYTES },
+        ),
+        executeGitWithStableDiagnostics(
+          "GitVcsDriver.getChanges.unstagedNumstat",
+          input.cwd,
+          ["diff", "--numstat", "-z", "--find-renames", "--"],
+          { maxOutputBytes: 4 * DEFAULT_MAX_OUTPUT_BYTES },
+        ),
+      ],
+      { concurrency: "unbounded" },
+    );
+    const statsByLayer = {
+      staged: new Map(
+        parseExactGitNumstat(stagedNumstat.stdout).map((entry) => [entry.path, entry]),
+      ),
+      unstaged: new Map(
+        parseExactGitNumstat(unstagedNumstat.stdout).map((entry) => [entry.path, entry]),
+      ),
+    } as const;
+    const repositoryRoot = yield* runGitStdout(
+      "GitVcsDriver.getChanges.repositoryRoot",
+      input.cwd,
+      ["rev-parse", "--show-toplevel"],
+    ).pipe(Effect.map((value) => value.trim()));
+
+    const inspectWorkingPath = Effect.fn("GitVcsDriver.inspectWorkingPath")(function* (
+      filePath: string,
+      inspectBinary: boolean,
+    ) {
+      const absolutePath = path.resolve(repositoryRoot, filePath);
+      const linkTarget = yield* fileSystem.readLink(absolutePath).pipe(Effect.option);
+      if (Option.isSome(linkTarget)) {
+        return {
+          display:
+            new TextEncoder().encode(linkTarget.value).byteLength > CHANGES_FILE_MAX_BYTES
+              ? ("too-large" as const)
+              : ("text" as const),
+          insertions: 1,
+          identity: `symlink:${linkTarget.value}`,
+        };
+      }
+      const info = yield* fileSystem.stat(absolutePath).pipe(Effect.option);
+      if (Option.isNone(info) || info.value.type !== "File") {
+        return { display: "text" as const, insertions: 0, identity: "missing" };
+      }
+      if (info.value.size > BigInt(CHANGES_FILE_MAX_BYTES)) {
+        const mtime = Option.match(info.value.mtime, {
+          onNone: () => "unknown",
+          onSome: (value) => String(value.getTime()),
+        });
+        return {
+          display: "too-large" as const,
+          insertions: 0,
+          identity: `oversized:${info.value.size}:${mtime}`,
+        };
+      }
+      if (!inspectBinary) {
+        return { display: "text" as const, insertions: 0, identity: null };
+      }
+      const bytes = yield* fileSystem.readFile(absolutePath).pipe(Effect.option);
+      if (Option.isNone(bytes)) {
+        return { display: "text" as const, insertions: 0, identity: null };
+      }
+      if (bytes.value.includes(0)) {
+        return { display: "binary" as const, insertions: 0, identity: null };
+      }
+      const contents = new TextDecoder().decode(bytes.value);
+      const lineCount =
+        contents.length === 0
+          ? 0
+          : (contents.match(/\n/g)?.length ?? 0) + (contents.endsWith("\n") ? 0 : 1);
+      return { display: "text" as const, insertions: lineCount, identity: null };
+    });
+
+    const inspectBinaryByPath = new Map<string, boolean>();
+    for (const record of records) {
+      const kind = changeKind(record.worktreeCode, record.unmerged);
+      if (kind === null || kind === "deleted") continue;
+      inspectBinaryByPath.set(
+        record.path,
+        record.untracked || statsByLayer.unstaged.get(record.path)?.binary === true,
+      );
+    }
+    const workingInspections = new Map(
+      yield* Effect.forEach(
+        inspectBinaryByPath,
+        ([filePath, inspectBinary]) =>
+          inspectWorkingPath(filePath, inspectBinary).pipe(
+            Effect.map((inspection) => [filePath, inspection] as const),
+          ),
+        { concurrency: 8 },
+      ),
+    );
+    const worktreeHashes = new Map(
+      Array.from(workingInspections).flatMap(([filePath, inspection]) =>
+        inspection.identity === null ? [] : ([[filePath, inspection.identity]] as const),
+      ),
+    );
+    const hashablePaths = Array.from(workingInspections).flatMap(([filePath, inspection]) =>
+      inspection.identity === null ? [filePath] : [],
+    );
+    if (hashablePaths.length > 0) {
+      const pathChunks = Array.from({ length: Math.ceil(hashablePaths.length / 128) }, (_, index) =>
+        hashablePaths.slice(index * 128, (index + 1) * 128),
+      );
+      const hashes = yield* Effect.forEach(
+        pathChunks,
+        (paths) =>
+          executeGitWithStableDiagnostics(
+            "GitVcsDriver.getChanges.worktreeHashes",
+            input.cwd,
+            ["--literal-pathspecs", "hash-object", "--no-filters", "--", ...paths],
+            { maxOutputBytes: Math.max(DEFAULT_MAX_OUTPUT_BYTES, paths.length * 48) },
+          ).pipe(Effect.map((result) => result.stdout.trim().split(/\r?\n/g))),
+        { concurrency: 4 },
+      ).pipe(Effect.map((chunks) => chunks.flat()));
+      if (hashes.length !== hashablePaths.length) {
+        return yield* new GitCommandError({
+          operation: "GitVcsDriver.getChanges.worktreeHashes",
+          command: "git",
+          cwd: input.cwd,
+          detail: "Git returned an incomplete working-tree identity snapshot.",
+        });
+      }
+      hashablePaths.forEach((filePath, index) => {
+        worktreeHashes.set(filePath, hashes[index]!);
+      });
+    }
+
+    const buildLayer = Effect.fn("GitVcsDriver.buildChangesLayer")(function* (
+      layer: VcsChangeLayer,
+    ) {
+      return yield* Effect.forEach(
+        records,
+        (record) =>
+          Effect.gen(function* () {
+            const code = layer === "staged" ? record.indexCode : record.worktreeCode;
+            const kind = changeKind(code, record.unmerged);
+            if (kind === null || (layer === "staged" && record.untracked)) return null;
+            const stats = statsByLayer[layer].get(record.path);
+            const workingInspection =
+              layer === "unstaged" && kind !== "deleted"
+                ? (workingInspections.get(record.path) ?? {
+                    display: "text" as const,
+                    insertions: 0,
+                  })
+                : { display: "text" as const, insertions: 0 };
+            const sideObjects =
+              layer === "staged"
+                ? kind === "added"
+                  ? [record.indexHash]
+                  : kind === "deleted"
+                    ? [record.headHash]
+                    : [record.headHash, record.indexHash]
+                : kind === "added"
+                  ? []
+                  : [record.indexHash];
+            const hasOversizedBlob = sideObjects.some(
+              (objectId) =>
+                (blobSizes.get(normalizeObjectId(objectId)) ?? 0) > CHANGES_FILE_MAX_BYTES,
+            );
+            const display = hasOversizedBlob
+              ? "too-large"
+              : stats?.binary
+                ? "binary"
+                : workingInspection.display;
+            const oldPath = kind === "renamed" || kind === "copied" ? record.oldPath : null;
+            const insertions = record.untracked
+              ? workingInspection.insertions
+              : (stats?.insertions ?? 0);
+            const deletions = stats?.deletions ?? 0;
+            const sourceIdentity =
+              layer === "staged"
+                ? `${normalizeObjectId(record.headHash)}\0${normalizeObjectId(record.indexHash)}`
+                : `${normalizeObjectId(record.indexHash)}\0${kind === "deleted" ? "missing" : (worktreeHashes.get(record.path) ?? record.raw)}`;
+            const identity = yield* hashChangeIdentity(
+              [kind, record.path, oldPath ?? "", sourceIdentity].join("\0"),
+            );
+            return {
+              identity,
+              layer,
+              kind,
+              path: record.path,
+              oldPath,
+              insertions,
+              deletions,
+              display,
+            } satisfies VcsChange;
+          }),
+        { concurrency: 8 },
+      ).pipe(
+        Effect.map((changes) =>
+          changes
+            .filter((change): change is VcsChange => change !== null)
+            .toSorted((left, right) => left.path.localeCompare(right.path)),
+        ),
+      );
+    });
+
+    const [staged, unstaged] = yield* Effect.all([buildLayer("staged"), buildLayer("unstaged")], {
+      concurrency: 2,
+    });
+    return { cwd: input.cwd, staged, unstaged };
+  });
+
+  const findExpectedChange = (
+    changes: VcsChangesResult,
+    input: Pick<VcsChangeFileInput, "layer" | "path" | "oldPath">,
+  ) =>
+    changes[input.layer].find(
+      (change) => change.path === input.path && change.oldPath === input.oldPath,
+    ) ?? null;
+
+  type ChangeFileSide =
+    | { readonly _tag: "contents"; readonly contents: string }
+    | { readonly _tag: "unrenderable"; readonly reason: "binary" | "too-large" };
+
+  const readBlobSide = Effect.fn("GitVcsDriver.readChangesBlobSide")(function* (
+    input: VcsChangeFileInput,
+    object: string,
+  ): Effect.fn.Return<ChangeFileSide, GitCommandError> {
+    const sizeResult = yield* executeGit("GitVcsDriver.getChangeFile.blobSize", input.cwd, [
+      "cat-file",
+      "-s",
+      object,
+    ]);
+    const size = Number.parseInt(sizeResult.stdout.trim(), 10);
+    if (Number.isFinite(size) && size > CHANGES_FILE_MAX_BYTES) {
+      return { _tag: "unrenderable", reason: "too-large" };
+    }
+    const result = yield* executeGit(
+      "GitVcsDriver.getChangeFile.blob",
+      input.cwd,
+      ["cat-file", "blob", object],
+      { maxOutputBytes: CHANGES_FILE_MAX_BYTES + 1 },
+    );
+    if (result.stdoutTruncated) return { _tag: "unrenderable", reason: "too-large" };
+    if (result.stdout.includes("\0")) return { _tag: "unrenderable", reason: "binary" };
+    return { _tag: "contents", contents: result.stdout };
+  });
+
+  const readWorkingSide = Effect.fn("GitVcsDriver.readChangesWorkingSide")(function* (
+    input: VcsChangeFileInput,
+    repositoryRoot: string,
+  ): Effect.fn.Return<ChangeFileSide, GitCommandError> {
+    const absolutePath = path.resolve(repositoryRoot, input.path);
+    const linkTarget = yield* fileSystem.readLink(absolutePath).pipe(Effect.option);
+    if (Option.isSome(linkTarget)) {
+      return { _tag: "contents", contents: linkTarget.value };
+    }
+    const info = yield* fileSystem.stat(absolutePath).pipe(
+      Effect.mapError(
+        (cause) =>
+          new GitCommandError({
+            operation: "GitVcsDriver.getChangeFile.stat",
+            command: "fs.stat",
+            cwd: input.cwd,
+            detail: `Could not inspect changed file '${input.path}'.`,
+            cause,
+          }),
+      ),
+    );
+    if (info.type !== "File" || info.size > BigInt(CHANGES_FILE_MAX_BYTES)) {
+      return { _tag: "unrenderable", reason: "too-large" };
+    }
+    const bytes = yield* fileSystem.readFile(absolutePath).pipe(
+      Effect.mapError(
+        (cause) =>
+          new GitCommandError({
+            operation: "GitVcsDriver.getChangeFile.read",
+            command: "fs.readFile",
+            cwd: input.cwd,
+            detail: `Could not read changed file '${input.path}'.`,
+            cause,
+          }),
+      ),
+    );
+    if (bytes.includes(0)) return { _tag: "unrenderable", reason: "binary" };
+    return { _tag: "contents", contents: new TextDecoder().decode(bytes) };
+  });
+
+  const getChangeFile: GitVcsDriver.GitVcsDriver["Service"]["getChangeFile"] = Effect.fn(
+    "GitVcsDriver.getChangeFile",
+  )(function* (input) {
+    const changes = yield* getChanges({ cwd: input.cwd });
+    const change = findExpectedChange(changes, input);
+    if (!change || change.identity !== input.expectedIdentity) {
+      return { _tag: "stale" as const, changes };
+    }
+    if (change.display !== "text") {
+      return { _tag: "unrenderable" as const, change, reason: change.display };
+    }
+    const repositoryRoot = yield* runGitStdout(
+      "GitVcsDriver.getChangeFile.repositoryRoot",
+      input.cwd,
+      ["rev-parse", "--show-toplevel"],
+    ).pipe(Effect.map((value) => value.trim()));
+    const status = yield* executeGitWithStableDiagnostics(
+      "GitVcsDriver.getChangeFile.status",
+      input.cwd,
+      [
+        "--literal-pathspecs",
+        "status",
+        "--porcelain=v2",
+        "-z",
+        "--untracked-files=all",
+        "--",
+        ...new Set(
+          [change.path, change.oldPath].filter((value): value is string => value !== null),
+        ),
+      ],
+    );
+    const record = parseExactGitStatus(status.stdout).find(
+      (candidate) =>
+        candidate.path === change.path &&
+        (change.oldPath === null || candidate.oldPath === change.oldPath),
+    );
+    if (!record) return { _tag: "stale" as const, changes: yield* getChanges({ cwd: input.cwd }) };
+    const oldSide =
+      change.kind === "added"
+        ? Effect.succeed<ChangeFileSide>({ _tag: "contents", contents: "" })
+        : readBlobSide(input, input.layer === "staged" ? record.headHash : record.indexHash);
+    const newSide =
+      change.kind === "deleted"
+        ? Effect.succeed<ChangeFileSide>({ _tag: "contents", contents: "" })
+        : input.layer === "staged"
+          ? readBlobSide(input, record.indexHash)
+          : readWorkingSide(input, repositoryRoot);
+    const [oldResult, newResult] = yield* Effect.all([oldSide, newSide], { concurrency: 2 });
+    if (oldResult._tag === "unrenderable") {
+      const reason = oldResult.reason;
+      const updatedChange = { ...change, display: reason };
+      return { _tag: "unrenderable" as const, change: updatedChange, reason };
+    }
+    if (newResult._tag === "unrenderable") {
+      const reason = newResult.reason;
+      const updatedChange = { ...change, display: reason };
+      return { _tag: "unrenderable" as const, change: updatedChange, reason };
+    }
+    return {
+      _tag: "ready" as const,
+      change,
+      oldContents: oldResult.contents,
+      newContents: newResult.contents,
+    };
+  });
+
+  const mutateChange = Effect.fn("GitVcsDriver.mutateChange")(function* (
+    input: VcsChangeMutationInput,
+    operation: "stage" | "unstage",
+  ) {
+    const changes = yield* getChanges({ cwd: input.cwd });
+    const expectedLayer = operation === "stage" ? "unstaged" : "staged";
+    if (input.layer !== expectedLayer) {
+      return { _tag: "stale" as const, changes };
+    }
+    const change = findExpectedChange(changes, input);
+    if (!change || change.identity !== input.expectedIdentity) {
+      return { _tag: "stale" as const, changes };
+    }
+    const paths = change.oldPath === null ? [change.path] : [change.oldPath, change.path];
+    if (operation === "stage") {
+      yield* runGit("GitVcsDriver.stageChange", input.cwd, [
+        "--literal-pathspecs",
+        "add",
+        "-A",
+        "--",
+        ...paths,
+      ]);
+    } else {
+      const head = yield* executeGit(
+        "GitVcsDriver.unstageChange.head",
+        input.cwd,
+        ["rev-parse", "--verify", "HEAD"],
+        { allowNonZeroExit: true },
+      );
+      yield* runGit(
+        "GitVcsDriver.unstageChange",
+        input.cwd,
+        head.exitCode === 0
+          ? ["--literal-pathspecs", "reset", "-q", "HEAD", "--", ...paths]
+          : ["--literal-pathspecs", "rm", "--cached", "--ignore-unmatch", "--", ...paths],
+      );
+      if (head.exitCode === 0 && change.kind === "renamed") {
+        // Intent-to-add keeps Git's unstaged rename detection intact without
+        // introducing staged content, so a later whole-file Stage stays atomic.
+        yield* executeGit(
+          "GitVcsDriver.unstageChange.preserveRename",
+          input.cwd,
+          ["--literal-pathspecs", "add", "-N", "--", change.path],
+          { allowNonZeroExit: true },
+        );
+      }
+    }
+    return { _tag: "applied" as const, changes: yield* getChanges({ cwd: input.cwd }) };
+  });
+
+  const stageChange: GitVcsDriver.GitVcsDriver["Service"]["stageChange"] = (input) =>
+    mutateChange(input, "stage");
+  const unstageChange: GitVcsDriver.GitVcsDriver["Service"]["unstageChange"] = (input) =>
+    mutateChange(input, "unstage");
+
   const prepareCommitContext: GitVcsDriver.GitVcsDriver["Service"]["prepareCommitContext"] =
-    Effect.fn("prepareCommitContext")(function* (cwd, filePaths) {
-      if (filePaths && filePaths.length > 0) {
+    Effect.fn("prepareCommitContext")(function* (cwd, filePaths, preserveIndex) {
+      if (preserveIndex) {
+        // The Changes screen already made the index the user's exact commit selection.
+      } else if (filePaths && filePaths.length > 0) {
         yield* runGit("GitVcsDriver.prepareCommitContext.reset", cwd, ["reset"]).pipe(
           Effect.catchTags({
             GitCommandError: () => Effect.void,
@@ -3156,6 +3754,10 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     statusDetails,
     statusDetailsLocal,
     statusDetailsRemote,
+    getChanges,
+    getChangeFile,
+    stageChange,
+    unstageChange,
     prepareCommitContext,
     commit: (cwd, subject, body, options) =>
       withListRefsInvalidation(cwd, commit(cwd, subject, body, options)),

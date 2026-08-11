@@ -48,6 +48,17 @@ describe("RPC authorization scopes", () => {
     );
   });
 
+  it("separates change reads from index mutations", () => {
+    expect(requiredScopeForRpcMethod(WS_METHODS.vcsChanges)).toBe(AuthOrchestrationReadScope);
+    expect(requiredScopeForRpcMethod(WS_METHODS.vcsChangeFile)).toBe(AuthOrchestrationReadScope);
+    expect(requiredScopeForRpcMethod(WS_METHODS.vcsStageChange)).toBe(
+      AuthOrchestrationOperateScope,
+    );
+    expect(requiredScopeForRpcMethod(WS_METHODS.vcsUnstageChange)).toBe(
+      AuthOrchestrationOperateScope,
+    );
+  });
+
   it("rejects unknown RPC method names", () => {
     for (const method of ["server.notRegistered", "toString", "constructor"]) {
       expect(() => requiredScopeForRpcMethod(method)).toThrow(

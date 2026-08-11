@@ -13,6 +13,30 @@ T3 Code works with the platforms your team already uses:
 
 ## What You Can Do
 
+### Review staged and unstaged changes on mobile
+
+From a thread's Git menu, choose **Review changes** to open **Changes**. The mobile app shows the
+real Git state for that thread's project or worktree in two collections:
+
+- **Unstaged** compares the Git index with the working tree.
+- **Staged** compares `HEAD` with the Git index.
+
+Open a file to read its complete unified diff, move between changed files, or stage and unstage the
+whole file. Binary and oversized files keep their change metadata and Stage or Unstage action even
+when their contents cannot be displayed. If a file changes while it is open, Changes keeps the
+snapshot you were reading and asks you to reload before allowing a Git mutation.
+
+Use a folder's overflow menu to stage or unstage every changed file below that folder at once.
+
+Tap a diff line to add a note, or long-press a line and tap another to select a range. Inline notes
+and the optional global note stay in a device-local draft until you open **Notes** and choose
+**Send to agent**. Sending uses the thread's normal queue, does not alter the ordinary message
+composer, and does not require every file to be staged first. Inline and global notes can include
+image attachments.
+
+The mobile commit sheet commits exactly the files currently under **Staged**. Stage the intended
+files in Changes before opening Commit.
+
 ### Start Projects from Anywhere
 
 **Clone repositories directly**

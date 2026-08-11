@@ -642,3 +642,89 @@ describe("cached VCS refs", () => {
     ),
   );
 });
+
+describe("changes RPC atoms", () => {
+  it.effect("routes file, stage, and unstage requests through the selected environment", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const calls = yield* Ref.make<ReadonlyArray<string>>([]);
+        const changes = { cwd: "/repo", staged: [], unstaged: [] } as const;
+        const client = {
+          [WS_METHODS.vcsChangeFile]: () =>
+            Ref.update(calls, (current) => [...current, WS_METHODS.vcsChangeFile]).pipe(
+              Effect.as({ _tag: "stale" as const, changes }),
+            ),
+          [WS_METHODS.vcsStageChange]: () =>
+            Ref.update(calls, (current) => [...current, WS_METHODS.vcsStageChange]).pipe(
+              Effect.as({ _tag: "applied" as const, changes }),
+            ),
+          [WS_METHODS.vcsUnstageChange]: () =>
+            Ref.update(calls, (current) => [...current, WS_METHODS.vcsUnstageChange]).pipe(
+              Effect.as({ _tag: "applied" as const, changes }),
+            ),
+        } as unknown as WsRpcProtocolClient;
+        const supervisor = EnvironmentSupervisor.EnvironmentSupervisor.of({
+          target: TARGET,
+          state: yield* SubscriptionRef.make(CONNECTED_CONNECTION_STATE),
+          session: yield* SubscriptionRef.make(Option.some(session(client))),
+          prepared: yield* SubscriptionRef.make(Option.none<PreparedConnection>()),
+          connect: Effect.void,
+          disconnect: Effect.void,
+          retryNow: Effect.void,
+        } satisfies EnvironmentSupervisor.EnvironmentSupervisor["Service"]);
+        const environmentRegistry = EnvironmentRegistry.EnvironmentRegistry.of({
+          run: (_environmentId, effect) =>
+            Effect.provideService(effect, EnvironmentSupervisor.EnvironmentSupervisor, supervisor),
+        } as EnvironmentRegistry.EnvironmentRegistry["Service"]);
+        const runtime = Atom.runtime(
+          Layer.merge(
+            Layer.succeed(EnvironmentRegistry.EnvironmentRegistry, environmentRegistry),
+            Layer.succeed(Persistence.EnvironmentCacheStore, cacheWithRefs(Option.none())),
+          ),
+        );
+        const atoms = createVcsEnvironmentAtoms(runtime);
+        const registry = yield* Effect.acquireRelease(Effect.sync(AtomRegistry.make), (value) =>
+          Effect.sync(() => value.dispose()),
+        );
+        const target = { environmentId: TARGET.environmentId, input: { cwd: "/repo" } };
+        const fileInput = {
+          ...target,
+          input: {
+            ...target.input,
+            layer: "unstaged" as const,
+            path: "file.ts",
+            oldPath: null,
+            expectedIdentity: "snapshot",
+          },
+        };
+
+        expect(atoms.changes(target)).toBeDefined();
+        expect(
+          AsyncResult.isSuccess(
+            yield* Effect.promise(() => atoms.changeFile.run(registry, fileInput)),
+          ),
+        ).toBe(true);
+        expect(
+          AsyncResult.isSuccess(
+            yield* Effect.promise(() => atoms.stageChange.run(registry, fileInput)),
+          ),
+        ).toBe(true);
+        expect(
+          AsyncResult.isSuccess(
+            yield* Effect.promise(() =>
+              atoms.unstageChange.run(registry, {
+                ...fileInput,
+                input: { ...fileInput.input, layer: "staged" as const },
+              }),
+            ),
+          ),
+        ).toBe(true);
+        expect(yield* Ref.get(calls)).toEqual([
+          WS_METHODS.vcsChangeFile,
+          WS_METHODS.vcsStageChange,
+          WS_METHODS.vcsUnstageChange,
+        ]);
+      }),
+    ),
+  );
+});

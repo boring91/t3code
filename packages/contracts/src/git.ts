@@ -104,6 +104,95 @@ export const VcsStatusInput = Schema.Struct({
 });
 export type VcsStatusInput = typeof VcsStatusInput.Type;
 
+export const VcsChangeLayer = Schema.Literals(["unstaged", "staged"]);
+export type VcsChangeLayer = typeof VcsChangeLayer.Type;
+
+export const VcsChangeKind = Schema.Literals([
+  "added",
+  "modified",
+  "deleted",
+  "renamed",
+  "copied",
+  "type-changed",
+  "unmerged",
+]);
+export type VcsChangeKind = typeof VcsChangeKind.Type;
+
+export const VcsChangeDisplay = Schema.Literals(["text", "binary", "too-large"]);
+export type VcsChangeDisplay = typeof VcsChangeDisplay.Type;
+export const VcsChangeNonRenderableReason = Schema.Literals(["binary", "too-large"]);
+export type VcsChangeNonRenderableReason = typeof VcsChangeNonRenderableReason.Type;
+
+// Git paths are intentionally not trimmed: leading/trailing whitespace and
+// newlines are valid path bytes and the Changes workflow preserves them.
+const VcsChangePath = Schema.String.check(Schema.isNonEmpty());
+
+export const VcsChange = Schema.Struct({
+  identity: Schema.String.check(Schema.isNonEmpty()),
+  layer: VcsChangeLayer,
+  kind: VcsChangeKind,
+  path: VcsChangePath,
+  oldPath: Schema.NullOr(VcsChangePath),
+  insertions: NonNegativeInt,
+  deletions: NonNegativeInt,
+  display: VcsChangeDisplay,
+});
+export type VcsChange = typeof VcsChange.Type;
+
+export const VcsChangesInput = Schema.Struct({
+  cwd: TrimmedNonEmptyStringSchema,
+});
+export type VcsChangesInput = typeof VcsChangesInput.Type;
+
+export const VcsChangesResult = Schema.Struct({
+  cwd: TrimmedNonEmptyStringSchema,
+  staged: Schema.Array(VcsChange),
+  unstaged: Schema.Array(VcsChange),
+});
+export type VcsChangesResult = typeof VcsChangesResult.Type;
+
+const VcsChangeTarget = Schema.Struct({
+  layer: VcsChangeLayer,
+  path: VcsChangePath,
+  oldPath: Schema.NullOr(VcsChangePath),
+  expectedIdentity: Schema.String.check(Schema.isNonEmpty()),
+});
+
+export const VcsChangeFileInput = Schema.Struct({
+  cwd: TrimmedNonEmptyStringSchema,
+  ...VcsChangeTarget.fields,
+});
+export type VcsChangeFileInput = typeof VcsChangeFileInput.Type;
+
+export const VcsChangeFileResult = Schema.Union([
+  Schema.TaggedStruct("ready", {
+    change: VcsChange,
+    oldContents: Schema.String,
+    newContents: Schema.String,
+  }),
+  Schema.TaggedStruct("unrenderable", {
+    change: VcsChange,
+    reason: VcsChangeNonRenderableReason,
+  }),
+  Schema.TaggedStruct("stale", {
+    changes: VcsChangesResult,
+  }),
+]);
+export type VcsChangeFileResult = typeof VcsChangeFileResult.Type;
+
+export const VcsChangeMutationInput = VcsChangeFileInput;
+export type VcsChangeMutationInput = typeof VcsChangeMutationInput.Type;
+
+export const VcsChangeMutationResult = Schema.Union([
+  Schema.TaggedStruct("applied", {
+    changes: VcsChangesResult,
+  }),
+  Schema.TaggedStruct("stale", {
+    changes: VcsChangesResult,
+  }),
+]);
+export type VcsChangeMutationResult = typeof VcsChangeMutationResult.Type;
+
 export const VcsPullInput = Schema.Struct({
   cwd: TrimmedNonEmptyStringSchema,
 });
@@ -118,6 +207,7 @@ export const GitRunStackedActionInput = Schema.Struct({
   filePaths: Schema.optional(
     Schema.Array(TrimmedNonEmptyStringSchema).check(Schema.isMinLength(1)),
   ),
+  preserveIndex: Schema.optional(Schema.Boolean),
 });
 export type GitRunStackedActionInput = typeof GitRunStackedActionInput.Type;
 

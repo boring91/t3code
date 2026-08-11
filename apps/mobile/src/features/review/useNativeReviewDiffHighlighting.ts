@@ -47,6 +47,7 @@ export function useNativeReviewDiffHighlighting(input: {
     firstRowIndex: 0,
     lastRowIndex: 80,
   });
+  const requestedRangeRef = useRef(visibleRangeRef.current);
   const visibleChunkIndexRef = useRef(0);
   const [tokensPatchJson, setTokensPatchJson] = useState(() => createEmptyTokenPatch(resetKey));
   const [visibleHighlightRequest, setVisibleHighlightRequest] = useState(0);
@@ -55,6 +56,7 @@ export function useNativeReviewDiffHighlighting(input: {
     highlightedRowIdsRef.current = new Set();
     visibleChunkIndexRef.current = 0;
     visibleRangeRef.current = { firstRowIndex: 0, lastRowIndex: 80 };
+    requestedRangeRef.current = visibleRangeRef.current;
     setTokensPatchJson(createEmptyTokenPatch(resetKey));
     if (enabled && rows.length > 0) {
       setVisibleHighlightRequest((request) => request + 1);
@@ -122,13 +124,14 @@ export function useNativeReviewDiffHighlighting(input: {
   }, [enabled, files, resetKey, rows, scheme, visibleHighlightRequest]);
 
   const updateVisibleRange = useCallback((nextRange: NativeReviewVisibleRange) => {
-    const previousRange = visibleRangeRef.current;
+    const previousRange = requestedRangeRef.current;
     const movedRows =
       Math.abs(nextRange.firstRowIndex - previousRange.firstRowIndex) +
       Math.abs(nextRange.lastRowIndex - previousRange.lastRowIndex);
 
     visibleRangeRef.current = nextRange;
     if (movedRows >= 20) {
+      requestedRangeRef.current = nextRange;
       setVisibleHighlightRequest((request) => request + 1);
     }
   }, []);

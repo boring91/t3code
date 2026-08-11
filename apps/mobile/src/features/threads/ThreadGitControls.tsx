@@ -15,6 +15,7 @@ import { NativeHeaderToolbar } from "../../native/StackHeader";
 import { useCallback, useMemo } from "react";
 import { Alert } from "react-native";
 import { tryOpenExternalUrl } from "../../lib/openExternalUrl";
+import { useEnvironmentServerConfig } from "../../state/entities";
 import {
   basename,
   getTerminalStatusLabel,
@@ -110,11 +111,13 @@ function useThreadGitControlModel(props: ThreadGitMenuProps) {
   const navigation = useNavigation();
   const environmentId = props.environmentId;
   const threadId = props.threadId;
+  const serverConfig = useEnvironmentServerConfig(EnvironmentId.make(String(environmentId)));
   const { gitStatus, gitOperationLabel, onPull, onRunAction } = props;
 
   const currentBranchLabel = gitStatus?.refName ?? props.currentBranch ?? "Detached HEAD";
   const busy = gitOperationLabel !== null;
   const isRepo = gitStatus?.isRepo ?? true;
+  const canReviewChanges = serverConfig?.environment.capabilities.vcsChanges === true;
   const hasPrimaryRemote = gitStatus?.hasPrimaryRemote ?? false;
   const isDefaultRef = gitStatus?.isDefaultRef ?? false;
 
@@ -216,7 +219,7 @@ function useThreadGitControlModel(props: ThreadGitMenuProps) {
   }, [environmentId, props.onOpenFilesInspector, navigation, threadId]);
 
   const openReview = useCallback(() => {
-    navigation.navigate("ThreadReview", {
+    navigation.navigate("ThreadChanges", {
       environmentId: EnvironmentId.make(String(environmentId)),
       threadId: ThreadId.make(String(threadId)),
     });
@@ -235,6 +238,7 @@ function useThreadGitControlModel(props: ThreadGitMenuProps) {
 
   return {
     currentBranchLabel,
+    canReviewChanges,
     isRepo,
     openFiles,
     openGitInspector,
@@ -344,14 +348,18 @@ function useThreadGitHeaderActionItems(props: ThreadGitControlsProps): ThreadGit
               onPress: (): void => void model.runQuickAction(),
               type: "action",
             },
-            {
-              description: "Turn diffs and worktree changes",
-              disabled: !model.isRepo,
-              icon: { name: "text.bubble", type: "sfSymbol" },
-              label: "Review changes",
-              onPress: model.openReview,
-              type: "action",
-            },
+            ...(model.canReviewChanges
+              ? [
+                  {
+                    description: "Review staged and unstaged files",
+                    disabled: !model.isRepo,
+                    icon: { name: "text.bubble", type: "sfSymbol" },
+                    label: "Review changes",
+                    onPress: model.openReview,
+                    type: "action",
+                  },
+                ]
+              : []),
             {
               description: "Commit, files, branches",
               icon: { name: "ellipsis", type: "sfSymbol" },
@@ -369,6 +377,7 @@ function useThreadGitHeaderActionItems(props: ThreadGitControlsProps): ThreadGit
     }),
     [
       model.currentBranchLabel,
+      model.canReviewChanges,
       model.isRepo,
       model.openFiles,
       model.openGitInspector,
@@ -522,14 +531,16 @@ export function ThreadGitMenu(props: ThreadGitMenuProps) {
       >
         <NativeHeaderToolbar.Label>{model.quickAction.label}</NativeHeaderToolbar.Label>
       </NativeHeaderToolbar.MenuAction>
-      <NativeHeaderToolbar.MenuAction
-        icon="text.bubble"
-        disabled={!model.isRepo}
-        onPress={model.openReview}
-        subtitle="Turn diffs and worktree changes"
-      >
-        <NativeHeaderToolbar.Label>Review changes</NativeHeaderToolbar.Label>
-      </NativeHeaderToolbar.MenuAction>
+      {model.canReviewChanges ? (
+        <NativeHeaderToolbar.MenuAction
+          icon="text.bubble"
+          disabled={!model.isRepo}
+          onPress={model.openReview}
+          subtitle="Review staged and unstaged files"
+        >
+          <NativeHeaderToolbar.Label>Review changes</NativeHeaderToolbar.Label>
+        </NativeHeaderToolbar.MenuAction>
+      ) : null}
       <NativeHeaderToolbar.MenuAction
         icon="ellipsis"
         onPress={model.openGitInspector}

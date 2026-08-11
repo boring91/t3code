@@ -7,6 +7,8 @@ import {
   GitRunStackedActionResult,
   GitRunStackedActionInput,
   GitResolvePullRequestResult,
+  VcsChangeFileInput,
+  VcsChangeMutationInput,
 } from "./git.ts";
 
 const decodeCreateWorktreeInput = Schema.decodeUnknownSync(VcsCreateWorktreeInput);
@@ -16,6 +18,36 @@ const decodePreparePullRequestThreadInput = Schema.decodeUnknownSync(
 const decodeRunStackedActionInput = Schema.decodeUnknownSync(GitRunStackedActionInput);
 const decodeRunStackedActionResult = Schema.decodeUnknownSync(GitRunStackedActionResult);
 const decodeResolvePullRequestResult = Schema.decodeUnknownSync(GitResolvePullRequestResult);
+const decodeChangeFileInput = Schema.decodeUnknownSync(VcsChangeFileInput);
+const decodeChangeMutationInput = Schema.decodeUnknownSync(VcsChangeMutationInput);
+const encodeChangeMutationInput = Schema.encodeSync(VcsChangeMutationInput);
+
+describe("VcsChangeFileInput", () => {
+  it("preserves exact Git path whitespace", () => {
+    const parsed = decodeChangeFileInput({
+      cwd: "/repo",
+      layer: "unstaged",
+      path: " leading\nname ",
+      oldPath: null,
+      expectedIdentity: "snapshot",
+    });
+
+    expect(parsed.path).toBe(" leading\nname ");
+  });
+
+  it("encodes an exact-path mutation", () => {
+    const parsed = decodeChangeMutationInput({
+      cwd: "/repo",
+      layer: "unstaged",
+      path: "folder/ leading\nname ",
+      oldPath: null,
+      expectedIdentity: "snapshot",
+    });
+
+    expect(parsed.path).toBe("folder/ leading\nname ");
+    expect(encodeChangeMutationInput(parsed)).toEqual(parsed);
+  });
+});
 
 describe("VcsCreateWorktreeInput", () => {
   it("accepts omitted newRefName for existing-refName worktrees", () => {
@@ -83,6 +115,17 @@ describe("GitRunStackedActionInput", () => {
 
     expect(parsed.actionId).toBe("action-1");
     expect(parsed.action).toBe("create_pr");
+  });
+
+  it("accepts preserving an explicitly prepared index", () => {
+    const parsed = decodeRunStackedActionInput({
+      actionId: "action-2",
+      cwd: "/repo",
+      action: "commit",
+      preserveIndex: true,
+    });
+
+    expect(parsed.preserveIndex).toBe(true);
   });
 });
 

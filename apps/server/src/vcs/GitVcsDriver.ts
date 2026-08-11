@@ -29,6 +29,12 @@ import {
   type VcsRemoveWorktreeInput,
   type VcsStatusInput,
   type VcsStatusResult,
+  type VcsChangesInput,
+  type VcsChangesResult,
+  type VcsChangeFileInput,
+  type VcsChangeFileResult,
+  type VcsChangeMutationInput,
+  type VcsChangeMutationResult,
 } from "@t3tools/contracts";
 import { makeGitVcsDriverCore } from "./GitVcsDriverCore.ts";
 import * as VcsDriver from "./VcsDriver.ts";
@@ -236,9 +242,22 @@ export class GitVcsDriver extends Context.Service<
       cwd: string,
       options?: GitRemoteStatusOptions,
     ) => Effect.Effect<GitRemoteStatusDetails, GitCommandError>;
+    readonly getChanges: (
+      input: VcsChangesInput,
+    ) => Effect.Effect<VcsChangesResult, GitCommandError>;
+    readonly getChangeFile: (
+      input: VcsChangeFileInput,
+    ) => Effect.Effect<VcsChangeFileResult, GitCommandError>;
+    readonly stageChange: (
+      input: VcsChangeMutationInput,
+    ) => Effect.Effect<VcsChangeMutationResult, GitCommandError>;
+    readonly unstageChange: (
+      input: VcsChangeMutationInput,
+    ) => Effect.Effect<VcsChangeMutationResult, GitCommandError>;
     readonly prepareCommitContext: (
       cwd: string,
       filePaths?: readonly string[],
+      preserveIndex?: boolean,
     ) => Effect.Effect<GitPreparedCommitContext | null, GitCommandError>;
     readonly commit: (
       cwd: string,

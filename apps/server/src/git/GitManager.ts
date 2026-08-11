@@ -1470,9 +1470,14 @@ export const make = Effect.gen(function* () {
       /** When true, also produce a semantic feature branch name. */
       includeBranch?: boolean;
       filePaths?: readonly string[];
+      preserveIndex?: boolean;
       settings: SourceControlTextGenerationSettings;
     }) {
-      const context = yield* gitCore.prepareCommitContext(input.cwd, input.filePaths);
+      const context = yield* gitCore.prepareCommitContext(
+        input.cwd,
+        input.filePaths,
+        input.preserveIndex,
+      );
       if (!context) {
         return null;
       }
@@ -1520,6 +1525,7 @@ export const make = Effect.gen(function* () {
     commitMessage?: string,
     preResolvedSuggestion?: CommitAndBranchSuggestion,
     filePaths?: readonly string[],
+    preserveIndex?: boolean,
     progressReporter?: GitActionProgressReporter,
     actionId?: string,
   ) {
@@ -1548,6 +1554,7 @@ export const make = Effect.gen(function* () {
         branch,
         ...(commitMessage ? { commitMessage } : {}),
         ...(filePaths ? { filePaths } : {}),
+        ...(preserveIndex ? { preserveIndex: true } : {}),
         settings,
       });
     }
@@ -2069,12 +2076,14 @@ export const make = Effect.gen(function* () {
     branch: string | null,
     commitMessage?: string,
     filePaths?: readonly string[],
+    preserveIndex?: boolean,
   ) {
     const suggestion = yield* resolveCommitAndBranchSuggestion({
       cwd,
       branch,
       ...(commitMessage ? { commitMessage } : {}),
       ...(filePaths ? { filePaths } : {}),
+      ...(preserveIndex ? { preserveIndex: true } : {}),
       includeBranch: true,
       settings,
     });
@@ -2206,6 +2215,7 @@ export const make = Effect.gen(function* () {
             initialStatus.branch,
             input.commitMessage,
             input.filePaths,
+            input.preserveIndex,
           );
           branchStep = result.branchStep;
           commitMessageForStep = result.resolvedCommitMessage;
@@ -2234,6 +2244,7 @@ export const make = Effect.gen(function* () {
                   commitMessageForStep,
                   preResolvedCommitSuggestion,
                   input.filePaths,
+                  input.preserveIndex,
                   options?.progressReporter,
                   progress.actionId,
                 ),

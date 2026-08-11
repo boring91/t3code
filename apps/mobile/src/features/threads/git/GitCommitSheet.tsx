@@ -1,11 +1,11 @@
-import { useNavigation, type StaticScreenProps } from "@react-navigation/native";
+import { useFocusEffect, useNavigation, type StaticScreenProps } from "@react-navigation/native";
 import { useCallback, useState } from "react";
-import { Platform, Pressable, ScrollView, View } from "react-native";
+import { Platform, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AndroidSheetHeader } from "../../../components/AndroidScreenHeader";
 import { AppText as Text, AppTextInput as TextInput } from "../../../components/AppText";
-import { cn } from "../../../lib/cn";
+import { useEnvironmentServerConfig } from "../../../state/entities";
 import { useEnvironmentQuery } from "../../../state/query";
 import { useThreadSelection } from "../../../state/use-thread-selection";
 import { useSelectedThreadGitActions } from "../../../state/use-selected-thread-git-actions";
@@ -26,10 +26,20 @@ export function GitCommitSheet(_props: GitCommitSheetProps) {
   const { selectedThreadCwd } = useSelectedThreadWorktree();
   const gitState = useSelectedThreadGitState();
   const gitActions = useSelectedThreadGitActions();
+  const serverConfig = useEnvironmentServerConfig(selectedThread?.environmentId ?? null);
+  const supportsChanges = serverConfig?.environment.capabilities.vcsChanges === true;
 
   const gitStatus = useEnvironmentQuery(
-    selectedThread !== null && selectedThreadCwd !== null
+    selectedThread !== null && selectedThreadCwd !== null && supportsChanges
       ? vcsEnvironment.status({
+          environmentId: selectedThread.environmentId,
+          input: { cwd: selectedThreadCwd },
+        })
+      : null,
+  );
+  const changes = useEnvironmentQuery(
+    selectedThread !== null && selectedThreadCwd !== null
+      ? vcsEnvironment.changes({
           environmentId: selectedThread.environmentId,
           input: { cwd: selectedThreadCwd },
         })
@@ -38,18 +48,20 @@ export function GitCommitSheet(_props: GitCommitSheetProps) {
 
   const busy = gitState.gitOperationLabel !== null;
   const isDefaultRef = gitStatus.data?.isDefaultRef ?? false;
-  const allFiles = gitStatus.data?.workingTree?.files ?? [];
+  const stagedFiles = supportsChanges
+    ? (changes.data?.staged ?? [])
+    : (gitStatus.data?.workingTree.files ?? []);
+
+  useFocusEffect(
+    useCallback(() => {
+      changes.refresh();
+    }, [changes.refresh]),
+  );
 
   const [dialogCommitMessage, setDialogCommitMessage] = useState("");
-  const [excludedFiles, setExcludedFiles] = useState<ReadonlySet<string>>(new Set());
-  const [isEditingFiles, setIsEditingFiles] = useState(false);
-
-  const selectedFiles = allFiles.filter((file) => !excludedFiles.has(file.path));
-  const allSelected = excludedFiles.size === 0;
-  const noneSelected = selectedFiles.length === 0;
-  const selectedInsertions = selectedFiles.reduce((sum, file) => sum + file.insertions, 0);
-  const selectedDeletions = selectedFiles.reduce((sum, file) => sum + file.deletions, 0);
-  const selectedFilePreview = selectedFiles.slice(0, 3);
+  const selectedInsertions = stagedFiles.reduce((sum, file) => sum + file.insertions, 0);
+  const selectedDeletions = stagedFiles.reduce((sum, file) => sum + file.deletions, 0);
+  const selectedFilePreview = stagedFiles.slice(0, 3);
 
   const runCommitAction = useCallback(
     async (featureBranch: boolean) => {
@@ -58,11 +70,13 @@ export function GitCommitSheet(_props: GitCommitSheetProps) {
       await gitActions.onRunSelectedThreadGitAction({
         action: "commit",
         featureBranch,
+        ...(supportsChanges
+          ? { preserveIndex: true }
+          : { filePaths: stagedFiles.map((file) => file.path) }),
         ...(commitMessage ? { commitMessage } : {}),
-        ...(!allSelected ? { filePaths: selectedFiles.map((file) => file.path) } : {}),
       });
     },
-    [allSelected, dialogCommitMessage, gitActions, navigation, selectedFiles],
+    [dialogCommitMessage, gitActions, navigation, stagedFiles, supportsChanges],
   );
 
   return (
@@ -92,38 +106,23 @@ export function GitCommitSheet(_props: GitCommitSheetProps) {
         </View>
 
         <View className="gap-3 rounded-[22px] border border-border bg-card px-4 py-4">
-          <View className="flex-row items-center justify-between gap-3">
-            <View className="gap-1">
-              <Text className="text-foreground text-base font-t3-bold">Files</Text>
-              <Text className="text-foreground-muted text-xs leading-normal">
-                {selectedFiles.length} selected · +{selectedInsertions} / -{selectedDeletions}
-              </Text>
-            </View>
-            <View className="flex-row items-center gap-2">
-              {!allSelected && isEditingFiles ? (
-                <Pressable
-                  className="bg-subtle rounded-full px-3 py-2"
-                  onPress={() => setExcludedFiles(new Set())}
-                >
-                  <Text className="text-foreground text-2xs font-t3-bold uppercase">Reset</Text>
-                </Pressable>
-              ) : null}
-              <Pressable
-                className="bg-subtle rounded-full px-3 py-2"
-                onPress={() => setIsEditingFiles((current) => !current)}
-              >
-                <Text className="text-foreground text-2xs font-t3-bold uppercase">
-                  {isEditingFiles ? "Done" : "Edit"}
-                </Text>
-              </Pressable>
-            </View>
+          <View className="gap-1">
+            <Text className="text-foreground text-base font-t3-bold">
+              {supportsChanges ? "Staged files" : "Files"}
+            </Text>
+            <Text className="text-foreground-muted text-xs leading-normal">
+              {stagedFiles.length} {supportsChanges ? "staged" : "selected"} · +{selectedInsertions}{" "}
+              / -{selectedDeletions}
+            </Text>
           </View>
 
-          {allFiles.length === 0 ? (
+          {stagedFiles.length === 0 ? (
             <Text className="text-foreground-secondary text-sm leading-normal">
-              No changed files are available to commit.
+              {supportsChanges
+                ? "Stage files from Changes before committing."
+                : "No changed files are available to commit."}
             </Text>
-          ) : !isEditingFiles ? (
+          ) : (
             <View className="gap-2">
               {selectedFilePreview.map((file) => (
                 <View key={file.path} className="flex-row items-center justify-between gap-3">
@@ -134,64 +133,11 @@ export function GitCommitSheet(_props: GitCommitSheetProps) {
                   <Text className="text-xs font-t3-bold text-rose-500">-{file.deletions}</Text>
                 </View>
               ))}
-              {selectedFiles.length > selectedFilePreview.length ? (
+              {stagedFiles.length > selectedFilePreview.length ? (
                 <Text className="text-foreground-muted text-xs leading-snug">
-                  +{selectedFiles.length - selectedFilePreview.length} more files
+                  +{stagedFiles.length - selectedFilePreview.length} more files
                 </Text>
               ) : null}
-            </View>
-          ) : (
-            <View className="gap-2">
-              {allFiles.map((file) => {
-                const included = !excludedFiles.has(file.path);
-                return (
-                  <Pressable
-                    key={file.path}
-                    className={cn(
-                      "rounded-[18px] border px-4 py-3",
-                      included ? "border-border" : "border-border-subtle",
-                    )}
-                    onPress={() => {
-                      setExcludedFiles((current) => {
-                        const next = new Set(current);
-                        if (next.has(file.path)) {
-                          next.delete(file.path);
-                        } else {
-                          next.add(file.path);
-                        }
-                        return next;
-                      });
-                    }}
-                  >
-                    <View
-                      className={`absolute inset-0 rounded-[18px] ${included ? "bg-card" : "bg-subtle"}`}
-                    />
-                    <View className="flex-row items-start justify-between gap-3">
-                      <View className="flex-1 gap-1">
-                        <Text
-                          selectable
-                          className={`text-sm font-t3-bold ${included ? "text-foreground" : "text-foreground-muted"}`}
-                        >
-                          {file.path}
-                        </Text>
-                        {!included ? (
-                          <Text className="text-foreground-muted text-2xs leading-normal">
-                            Excluded from this commit
-                          </Text>
-                        ) : null}
-                      </View>
-                      <View className="items-end gap-1">
-                        <Text className="text-xs font-t3-bold text-emerald-500">
-                          +{file.insertions}
-                        </Text>
-                        <Text className="text-xs font-t3-bold text-rose-500">
-                          -{file.deletions}
-                        </Text>
-                      </View>
-                    </View>
-                  </Pressable>
-                );
-              })}
             </View>
           )}
         </View>
@@ -213,7 +159,7 @@ export function GitCommitSheet(_props: GitCommitSheetProps) {
             <SheetActionButton
               icon="arrow.branch"
               label="Commit on new branch"
-              disabled={noneSelected || busy}
+              disabled={stagedFiles.length === 0 || busy}
               onPress={() => void runCommitAction(true)}
             />
           </View>
@@ -222,7 +168,7 @@ export function GitCommitSheet(_props: GitCommitSheetProps) {
               icon="checkmark.circle"
               label="Commit"
               tone="primary"
-              disabled={noneSelected || busy}
+              disabled={stagedFiles.length === 0 || busy}
               onPress={() => void runCommitAction(false)}
             />
           </View>

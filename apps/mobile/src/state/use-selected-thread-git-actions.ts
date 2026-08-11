@@ -330,6 +330,7 @@ export function useSelectedThreadGitActions() {
             ...(input.commitMessage ? { commitMessage: input.commitMessage } : {}),
             ...(input.featureBranch ? { featureBranch: input.featureBranch } : {}),
             ...(input.filePaths?.length ? { filePaths: [...input.filePaths] } : {}),
+            ...(input.preserveIndex ? { preserveIndex: true } : {}),
           });
           if (AsyncResult.isFailure(result)) {
             return result;

@@ -7,8 +7,8 @@ import type { DraftComposerImageAttachment } from "../lib/composerImages";
 export interface ComposerAttachmentStripProps {
   /** Attachment images to display. */
   readonly attachments: ReadonlyArray<DraftComposerImageAttachment>;
-  /** Called when the user taps the remove button on an image. */
-  readonly onRemove: (imageId: string) => void;
+  /** Called when the user taps the remove button on an image. Omit for a read-only strip. */
+  readonly onRemove?: (imageId: string) => void;
   /** Called when the user taps on an image thumbnail to preview it. */
   readonly onPressImage?: (previewUri: string) => void;
   /** Image thumbnail size in points.  Defaults to 72. */
@@ -28,7 +28,7 @@ export function ComposerAttachmentStrip(props: ComposerAttachmentStripProps) {
   const size = props.imageSize ?? 72;
   const radius = props.imageBorderRadius ?? 16;
   const removeButtonPlacement = props.removeButtonPlacement ?? "overlay";
-  const removeButtonGutter = removeButtonPlacement === "gutter" ? 10 : 0;
+  const removeButtonGutter = removeButtonPlacement === "gutter" && props.onRemove ? 10 : 0;
 
   if (props.attachments.length === 0) {
     return null;
@@ -65,23 +65,25 @@ export function ComposerAttachmentStrip(props: ComposerAttachmentStripProps) {
                 resizeMode="cover"
               />
             </Pressable>
-            <Pressable
-              className="absolute h-[22px] w-[22px] items-center justify-center rounded-[11px] bg-black/55"
-              style={{
-                top: removeButtonPlacement === "gutter" ? 0 : 4,
-                right: removeButtonPlacement === "gutter" ? 0 : 4,
-              }}
-              hitSlop={6}
-              onPress={() => props.onRemove(image.id)}
-            >
-              <SymbolView
-                name="xmark"
-                size={9}
-                tintColor="#ffffff"
-                type="monochrome"
-                weight="bold"
-              />
-            </Pressable>
+            {props.onRemove ? (
+              <Pressable
+                className="absolute h-[22px] w-[22px] items-center justify-center rounded-[11px] bg-black/55"
+                style={{
+                  top: removeButtonPlacement === "gutter" ? 0 : 4,
+                  right: removeButtonPlacement === "gutter" ? 0 : 4,
+                }}
+                hitSlop={6}
+                onPress={() => props.onRemove?.(image.id)}
+              >
+                <SymbolView
+                  name="xmark"
+                  size={9}
+                  tintColor="#ffffff"
+                  type="monochrome"
+                  weight="bold"
+                />
+              </Pressable>
+            ) : null}
           </View>
         ))}
       </View>

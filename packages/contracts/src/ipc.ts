@@ -17,6 +17,12 @@ import type {
   GitResolvePullRequestResult,
   VcsStatusInput,
   VcsStatusResult,
+  VcsChangesInput,
+  VcsChangesResult,
+  VcsChangeFileInput,
+  VcsChangeFileResult,
+  VcsChangeMutationInput,
+  VcsChangeMutationResult,
 } from "./git.ts";
 import type {
   ReviewDiffFileContentsInput,
@@ -1235,6 +1241,10 @@ export interface EnvironmentApi {
     init: (input: VcsInitInput) => Promise<void>;
     pull: (input: VcsPullInput) => Promise<VcsPullResult>;
     refreshStatus: (input: VcsStatusInput) => Promise<VcsStatusResult>;
+    changes: (input: VcsChangesInput) => Promise<VcsChangesResult>;
+    changeFile: (input: VcsChangeFileInput) => Promise<VcsChangeFileResult>;
+    stageChange: (input: VcsChangeMutationInput) => Promise<VcsChangeMutationResult>;
+    unstageChange: (input: VcsChangeMutationInput) => Promise<VcsChangeMutationResult>;
     onStatus: (
       input: VcsStatusInput,
       callback: (status: VcsStatusResult) => void,

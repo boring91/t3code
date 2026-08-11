@@ -103,6 +103,11 @@ describe("isPendingNativeViewRegistration", () => {
         ),
       ),
     ).toBe(true);
+    expect(
+      isPendingNativeViewRegistration(
+        new Error("Unable to find the 'T3ReviewDiffView' view with tag '3546'"),
+      ),
+    ).toBe(true);
   });
 });
 

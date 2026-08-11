@@ -40,6 +40,7 @@ export interface NativeReviewDiffRow {
   readonly change?: "context" | "add" | "delete";
   readonly oldLineNumber?: number | null;
   readonly newLineNumber?: number | null;
+  readonly commentNumber?: number;
   readonly wordDiffRanges?: ReadonlyArray<NativeReviewDiffWordDiffRange>;
   readonly commentText?: string;
   readonly commentRangeLabel?: string;
@@ -121,6 +122,7 @@ export interface NativeReviewDiffViewProps extends ViewProps {
   readonly styleJson?: string;
   readonly rowHeight: number;
   readonly contentWidth: number;
+  readonly wrapLines?: boolean;
   readonly initialRowIndex?: number;
   readonly refreshing?: boolean;
   readonly nativeViewRef?: Ref<NativeReviewDiffViewHandle>;
@@ -136,6 +138,7 @@ export interface NativeReviewDiffViewProps extends ViewProps {
       readonly rowId?: string;
       readonly fileId?: string;
       readonly gesture?: "tap" | "longPress";
+      readonly target?: "gutter" | "row";
       readonly oldLineNumber?: number;
       readonly newLineNumber?: number;
       readonly change?: "context" | "add" | "delete";
@@ -146,6 +149,7 @@ export interface NativeReviewDiffViewProps extends ViewProps {
 
 export interface NativeReviewDiffViewHandle {
   readonly scrollToFile: (fileId: string, animated?: boolean) => Promise<void>;
+  readonly scrollToRow: (rowIndex: number, animated?: boolean) => Promise<void>;
   readonly scrollToTop: (animated?: boolean) => Promise<void>;
 }
 
@@ -158,6 +162,7 @@ interface NativeReviewDiffViewRef {
   readonly setTokensJson: (tokensJson: string) => Promise<void>;
   readonly setTokensPatchJson: (tokensPatchJson: string) => Promise<void>;
   readonly scrollToFile: (fileId: string, animated: boolean) => Promise<void>;
+  readonly scrollToRow: (rowIndex: number, animated: boolean) => Promise<void>;
   readonly scrollToTop: (animated: boolean) => Promise<void>;
 }
 
@@ -177,6 +182,7 @@ export function isPendingNativeViewRegistration(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
   return (
     error.message.includes(`Unable to find the '${NATIVE_REVIEW_DIFF_MODULE_NAME}' view`) ||
+    error.message.includes("Unable to find the 'T3ReviewDiffView' view with tag") ||
     (error.message.includes("Unable to find the class") &&
       error.message.includes("T3ReviewDiffView view with tag"))
   );
@@ -255,6 +261,9 @@ function NativeReviewDiffView(props: NativeReviewDiffViewProps) {
     () => ({
       scrollToFile: async (fileId, animated = true) => {
         await nativeRef.current?.scrollToFile(fileId, animated);
+      },
+      scrollToRow: async (rowIndex, animated = true) => {
+        await nativeRef.current?.scrollToRow(rowIndex, animated);
       },
       scrollToTop: async (animated = true) => {
         await nativeRef.current?.scrollToTop(animated);

@@ -14,9 +14,17 @@ import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
-import { GitCommandError, type ReviewDiffFileContentsInput } from "@t3tools/contracts";
+import {
+  GitCommandError,
+  type ReviewDiffFileContentsInput,
+  type VcsChange,
+} from "@t3tools/contracts";
 import { ServerConfig } from "../config.ts";
-import { makeGitVcsDriverCore, splitNullSeparatedGitStdoutPaths } from "./GitVcsDriverCore.ts";
+import {
+  makeGitVcsDriverCore,
+  parseExactGitStatus,
+  splitNullSeparatedGitStdoutPaths,
+} from "./GitVcsDriverCore.ts";
 import * as GitVcsDriver from "./GitVcsDriver.ts";
 
 const ServerConfigLayer = ServerConfig.layerTest(process.cwd(), {
@@ -26,6 +34,17 @@ const TestLayer = GitVcsDriver.layer.pipe(
   Layer.provide(ServerConfigLayer),
   Layer.provideMerge(NodeServices.layer),
 );
+
+const changeMutationInput = (
+  cwd: string,
+  change: Pick<VcsChange, "identity" | "layer" | "oldPath" | "path">,
+) => ({
+  cwd,
+  layer: change.layer,
+  path: change.path,
+  oldPath: change.oldPath,
+  expectedIdentity: change.identity,
+});
 
 const makeNonRepositoryHandle = () =>
   ChildProcessSpawner.makeHandle({
@@ -127,6 +146,19 @@ const initRepoWithCommit = (
     const initialBranch = yield* git(cwd, ["branch", "--show-current"]);
     return { initialBranch };
   });
+
+it("parses blob hashes from unmerged porcelain-v2 records", () => {
+  const [record] = parseExactGitStatus(
+    "u UU N... 100644 100644 100644 100644 aaaaa bbbbb ccccc conflicted.txt\0",
+  );
+
+  assert.deepInclude(record, {
+    path: "conflicted.txt",
+    headHash: "aaaaa",
+    indexHash: "bbbbb",
+    unmerged: true,
+  });
+});
 
 it.effect("uses stable diagnostics for every parsed non-repository command", () => {
   const commands: Array<{ readonly args: ReadonlyArray<string>; readonly lcAll?: string }> = [];
@@ -756,6 +788,285 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
         });
         assert.notProperty(error, "cause");
         assert.notInclude(error.detail, "Git command failed in");
+      }),
+    );
+  });
+
+  describe("exact staged and unstaged changes", () => {
+    it.effect("keeps index and worktree snapshots separate for exact paths", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        yield* initRepoWithCommit(cwd);
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+
+        yield* writeTextFile(cwd, "README.md", "# staged\n");
+        yield* git(cwd, ["add", "README.md"]);
+        yield* writeTextFile(cwd, "README.md", "# worktree\n");
+        yield* writeTextFile(cwd, "odd\n name[1].txt", "literal\n");
+
+        const changes = yield* driver.getChanges({ cwd });
+        assert.deepStrictEqual(
+          changes.staged.map((change) => change.path),
+          ["README.md"],
+        );
+        assert.deepStrictEqual(
+          changes.unstaged.map((change) => change.path),
+          ["odd\n name[1].txt", "README.md"],
+        );
+
+        const staged = changes.staged[0]!;
+        const stagedFile = yield* driver.getChangeFile({
+          cwd,
+          layer: staged.layer,
+          path: staged.path,
+          oldPath: staged.oldPath,
+          expectedIdentity: staged.identity,
+        });
+        assert.equal(stagedFile._tag, "ready");
+        if (stagedFile._tag === "ready") {
+          assert.equal(stagedFile.oldContents, "# test\n");
+          assert.equal(stagedFile.newContents, "# staged\n");
+        }
+
+        const unstaged = changes.unstaged.find((change) => change.path === "README.md")!;
+        const unstagedFile = yield* driver.getChangeFile({
+          cwd,
+          layer: unstaged.layer,
+          path: unstaged.path,
+          oldPath: unstaged.oldPath,
+          expectedIdentity: unstaged.identity,
+        });
+        assert.equal(unstagedFile._tag, "ready");
+        if (unstagedFile._tag === "ready") {
+          assert.equal(unstagedFile.oldContents, "# staged\n");
+          assert.equal(unstagedFile.newContents, "# worktree\n");
+        }
+
+        const fullyStaged = yield* driver.stageChange(changeMutationInput(cwd, unstaged));
+        assert.equal(fullyStaged._tag, "applied");
+        if (fullyStaged._tag === "applied") {
+          assert.isFalse(
+            fullyStaged.changes.unstaged.some((change) => change.path === "README.md"),
+          );
+          const stagedAfter = fullyStaged.changes.staged.find(
+            (change) => change.path === "README.md",
+          )!;
+          const stagedAfterFile = yield* driver.getChangeFile({
+            cwd,
+            layer: stagedAfter.layer,
+            path: stagedAfter.path,
+            oldPath: stagedAfter.oldPath,
+            expectedIdentity: stagedAfter.identity,
+          });
+          assert.deepInclude(stagedAfterFile, {
+            _tag: "ready",
+            newContents: "# worktree\n",
+          });
+        }
+      }),
+    );
+
+    it.effect("rejects stale stage requests and treats pathspecs literally", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        yield* initRepoWithCommit(cwd);
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        yield* writeTextFile(cwd, "selected[1].txt", "literal\n");
+        yield* writeTextFile(cwd, "selected1.txt", "pattern\n");
+
+        const selected = (yield* driver.getChanges({ cwd })).unstaged.find(
+          (change) => change.path === "selected[1].txt",
+        )!;
+        const applied = yield* driver.stageChange(changeMutationInput(cwd, selected));
+        assert.equal(applied._tag, "applied");
+        if (applied._tag === "applied") {
+          assert.equal(applied.changes.staged[0]?.identity, selected.identity);
+        }
+        assert.equal(yield* git(cwd, ["diff", "--cached", "--name-only"]), "selected[1].txt");
+
+        const stale = yield* driver.stageChange(changeMutationInput(cwd, selected));
+        assert.equal(stale._tag, "stale");
+
+        if (applied._tag === "applied") {
+          const staged = applied.changes.staged[0]!;
+          const unstaged = yield* driver.unstageChange(changeMutationInput(cwd, staged));
+          assert.equal(unstaged._tag, "applied");
+          assert.include(yield* git(cwd, ["status", "--porcelain"]), "?? selected[1].txt");
+        }
+      }),
+    );
+
+    it.effect("unstages the initial index in an unborn repository", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        yield* driver.initRepo({ cwd });
+        yield* writeTextFile(cwd, "first.txt", "first\n");
+
+        const unstaged = (yield* driver.getChanges({ cwd })).unstaged[0]!;
+        const stagedResult = yield* driver.stageChange(changeMutationInput(cwd, unstaged));
+        assert.equal(stagedResult._tag, "applied");
+        if (stagedResult._tag !== "applied") return;
+        const staged = stagedResult.changes.staged[0]!;
+        const unstagedResult = yield* driver.unstageChange(changeMutationInput(cwd, staged));
+        assert.equal(unstagedResult._tag, "applied");
+        if (unstagedResult._tag === "applied") {
+          assert.lengthOf(unstagedResult.changes.staged, 0);
+          assert.deepStrictEqual(
+            unstagedResult.changes.unstaged.map((change) => change.path),
+            ["first.txt"],
+          );
+        }
+      }),
+    );
+
+    it.effect("stages and unstages a folder selection sequentially", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        yield* initRepoWithCommit(cwd);
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        yield* writeTextFile(cwd, "folder/a.txt", "a\n");
+        yield* writeTextFile(cwd, "folder/b.txt", "b\n");
+
+        const selected = (yield* driver.getChanges({ cwd })).unstaged.filter((change) =>
+          change.path.startsWith("folder/"),
+        );
+        let staged = yield* driver.getChanges({ cwd });
+        for (const change of selected) {
+          const result = yield* driver.stageChange(changeMutationInput(cwd, change));
+          assert.equal(result._tag, "applied");
+          if (result._tag !== "applied") return;
+          staged = result.changes;
+        }
+        assert.deepStrictEqual(
+          staged.staged.map((change) => change.path),
+          ["folder/a.txt", "folder/b.txt"],
+        );
+
+        let unstaged = staged;
+        for (const change of staged.staged) {
+          const result = yield* driver.unstageChange(changeMutationInput(cwd, change));
+          assert.equal(result._tag, "applied");
+          if (result._tag !== "applied") return;
+          unstaged = result.changes;
+        }
+        assert.lengthOf(unstaged.staged, 0);
+      }),
+    );
+
+    it.effect("keeps both paths of a staged rename", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        yield* initRepoWithCommit(cwd);
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        yield* git(cwd, ["mv", "README.md", "renamed.md"]);
+
+        const changes = yield* driver.getChanges({ cwd });
+        const renamed = changes.staged[0]!;
+        assert.deepInclude(renamed, {
+          kind: "renamed",
+          path: "renamed.md",
+          oldPath: "README.md",
+        });
+        const file = yield* driver.getChangeFile({
+          cwd,
+          layer: renamed.layer,
+          path: renamed.path,
+          oldPath: renamed.oldPath,
+          expectedIdentity: renamed.identity,
+        });
+        assert.equal(file._tag, "ready");
+        if (file._tag === "ready") {
+          assert.equal(file.oldContents, "# test\n");
+          assert.equal(file.newContents, "# test\n");
+        }
+
+        const result = yield* driver.unstageChange(changeMutationInput(cwd, renamed));
+        assert.equal(result._tag, "applied");
+        if (result._tag === "applied") {
+          assert.lengthOf(result.changes.staged, 0);
+          assert.deepInclude(result.changes.unstaged[0], {
+            kind: "renamed",
+            path: "renamed.md",
+            oldPath: "README.md",
+          });
+          const restaged = yield* driver.stageChange(
+            changeMutationInput(cwd, result.changes.unstaged[0]!),
+          );
+          assert.equal(restaged._tag, "applied");
+          if (restaged._tag === "applied") {
+            assert.deepInclude(restaged.changes.staged[0], {
+              kind: "renamed",
+              path: "renamed.md",
+              oldPath: "README.md",
+            });
+          }
+        }
+      }),
+    );
+
+    it.effect("keeps oversized files actionable without loading their contents", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        yield* initRepoWithCommit(cwd);
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        const fileSystem = yield* FileSystem.FileSystem;
+        const pathService = yield* Path.Path;
+        yield* writeTextFile(cwd, "large.txt", "x".repeat(1024 * 1024 + 1));
+        yield* fileSystem.writeFile(pathService.join(cwd, "binary.dat"), new Uint8Array([1, 0, 2]));
+
+        const initial = yield* driver.getChanges({ cwd });
+        const binary = initial.unstaged.find((change) => change.path === "binary.dat")!;
+        assert.equal(binary.display, "binary");
+        const binaryFile = yield* driver.getChangeFile({
+          cwd,
+          layer: binary.layer,
+          path: binary.path,
+          oldPath: binary.oldPath,
+          expectedIdentity: binary.identity,
+        });
+        assert.deepInclude(binaryFile, { _tag: "unrenderable", reason: "binary" });
+
+        const unstaged = initial.unstaged.find((change) => change.path === "large.txt")!;
+        assert.equal(unstaged.display, "too-large");
+        const stagedResult = yield* driver.stageChange(changeMutationInput(cwd, unstaged));
+        assert.equal(stagedResult._tag, "applied");
+        if (stagedResult._tag !== "applied") return;
+        const staged = stagedResult.changes.staged[0]!;
+        assert.equal(staged.display, "too-large");
+        const file = yield* driver.getChangeFile({
+          cwd,
+          layer: staged.layer,
+          path: staged.path,
+          oldPath: staged.oldPath,
+          expectedIdentity: staged.identity,
+        });
+        assert.deepInclude(file, { _tag: "unrenderable", reason: "too-large" });
+      }),
+    );
+
+    it.effect("reads newer working-tree contents after a staged rename", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        yield* initRepoWithCommit(cwd);
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        yield* git(cwd, ["mv", "README.md", "renamed.md"]);
+        yield* writeTextFile(cwd, "renamed.md", "# changed after rename\n");
+
+        const changes = yield* driver.getChanges({ cwd });
+        const unstaged = changes.unstaged[0]!;
+        const file = yield* driver.getChangeFile({
+          cwd,
+          layer: unstaged.layer,
+          path: unstaged.path,
+          oldPath: unstaged.oldPath,
+          expectedIdentity: unstaged.identity,
+        });
+        assert.equal(file._tag, "ready");
+        if (file._tag === "ready") {
+          assert.equal(file.oldContents, "# test\n");
+          assert.equal(file.newContents, "# changed after rename\n");
+        }
       }),
     );
   });
@@ -1438,6 +1749,23 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
   });
 
   describe("commit context", () => {
+    it.effect("preserves an explicitly prepared index", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        yield* initRepoWithCommit(cwd);
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        yield* writeTextFile(cwd, "staged.txt", "staged\n");
+        yield* writeTextFile(cwd, "unstaged.txt", "unstaged\n");
+        yield* git(cwd, ["add", "staged.txt"]);
+
+        const context = yield* driver.prepareCommitContext(cwd, undefined, true);
+
+        assert.include(context?.stagedSummary ?? "", "staged.txt");
+        assert.notInclude(context?.stagedSummary ?? "", "unstaged.txt");
+        assert.equal(yield* git(cwd, ["diff", "--cached", "--name-only"]), "staged.txt");
+      }),
+    );
+
     it.effect("stages selected files and commits only those files", () =>
       Effect.gen(function* () {
         const cwd = yield* makeTmpDir();

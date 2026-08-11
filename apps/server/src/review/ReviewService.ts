@@ -13,6 +13,12 @@ import {
   type ReviewDiffPreviewError,
   type ReviewDiffPreviewInput,
   type ReviewDiffPreviewResult,
+  type VcsChangesInput,
+  type VcsChangesResult,
+  type VcsChangeFileInput,
+  type VcsChangeFileResult,
+  type VcsChangeMutationInput,
+  type VcsChangeMutationResult,
 } from "@t3tools/contracts";
 
 import * as ServerConfig from "../config.ts";
@@ -28,6 +34,18 @@ export class ReviewService extends Context.Service<
     readonly getDiffFileContents: (
       input: ReviewDiffFileContentsInput,
     ) => Effect.Effect<ReviewDiffFileContentsResult, ReviewDiffPreviewError>;
+    readonly getChanges: (
+      input: VcsChangesInput,
+    ) => Effect.Effect<VcsChangesResult, ReviewDiffPreviewError>;
+    readonly getChangeFile: (
+      input: VcsChangeFileInput,
+    ) => Effect.Effect<VcsChangeFileResult, ReviewDiffPreviewError>;
+    readonly stageChange: (
+      input: VcsChangeMutationInput,
+    ) => Effect.Effect<VcsChangeMutationResult, ReviewDiffPreviewError>;
+    readonly unstageChange: (
+      input: VcsChangeMutationInput,
+    ) => Effect.Effect<VcsChangeMutationResult, ReviewDiffPreviewError>;
   }
 >()("t3/review/ReviewService") {}
 
@@ -63,7 +81,7 @@ export const make = Effect.gen(function* () {
   };
 
   const assertWorkspaceBoundCwd = Effect.fn("ReviewService.assertWorkspaceBoundCwd")(function* (
-    operation: "ReviewService.getDiffPreview" | "ReviewService.getDiffFileContents",
+    operation: string,
     cwd: string,
   ) {
     const [candidate, workspaceRoot, worktreesRoot] = yield* Effect.all([
@@ -79,10 +97,7 @@ export const make = Effect.gen(function* () {
     return yield* new VcsRepositoryDetectionError({
       operation,
       cwd,
-      detail:
-        operation === "ReviewService.getDiffPreview"
-          ? "Review diff preview cwd must stay within the configured workspace root."
-          : "Review diff file contents cwd must stay within the configured workspace root.",
+      detail: "VCS review cwd must stay within the configured workspace root.",
     });
   });
 
@@ -132,9 +147,41 @@ export const make = Effect.gen(function* () {
     return yield* git.getReviewDiffFileContents(input);
   });
 
+  const getChanges: ReviewService["Service"]["getChanges"] = Effect.fn("ReviewService.getChanges")(
+    function* (input) {
+      yield* assertWorkspaceBoundCwd("ReviewService.getChanges", input.cwd);
+      return yield* git.getChanges(input);
+    },
+  );
+
+  const getChangeFile: ReviewService["Service"]["getChangeFile"] = Effect.fn(
+    "ReviewService.getChangeFile",
+  )(function* (input) {
+    yield* assertWorkspaceBoundCwd("ReviewService.getChangeFile", input.cwd);
+    return yield* git.getChangeFile(input);
+  });
+
+  const stageChange: ReviewService["Service"]["stageChange"] = Effect.fn(
+    "ReviewService.stageChange",
+  )(function* (input) {
+    yield* assertWorkspaceBoundCwd("ReviewService.stageChange", input.cwd);
+    return yield* git.stageChange(input);
+  });
+
+  const unstageChange: ReviewService["Service"]["unstageChange"] = Effect.fn(
+    "ReviewService.unstageChange",
+  )(function* (input) {
+    yield* assertWorkspaceBoundCwd("ReviewService.unstageChange", input.cwd);
+    return yield* git.unstageChange(input);
+  });
+
   return ReviewService.of({
     getDiffPreview,
     getDiffFileContents,
+    getChanges,
+    getChangeFile,
+    stageChange,
+    unstageChange,
   });
 });
 

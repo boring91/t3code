@@ -41,6 +41,9 @@ class T3ReviewDiffModule : Module() {
       Prop("contentWidth") { view: T3ReviewDiffView, contentWidth: Double ->
         view.setContentWidth(contentWidth.toFloat())
       }
+      Prop("wrapLines") { view: T3ReviewDiffView, wrapLines: Boolean ->
+        view.setWrapLines(wrapLines)
+      }
       Prop("initialRowIndex") { view: T3ReviewDiffView, initialRowIndex: Double ->
         view.setInitialRowIndex(initialRowIndex)
       }
@@ -56,6 +59,9 @@ class T3ReviewDiffModule : Module() {
 
       AsyncFunction("scrollToFile") { view: T3ReviewDiffView, fileId: String, animated: Boolean ->
         view.scrollToFile(fileId, animated)
+      }
+      AsyncFunction("scrollToRow") { view: T3ReviewDiffView, rowIndex: Int, animated: Boolean ->
+        view.scrollToRow(rowIndex, animated)
       }
       AsyncFunction("scrollToTop") { view: T3ReviewDiffView, animated: Boolean ->
         view.scrollToTop(animated)

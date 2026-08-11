@@ -43,6 +43,12 @@ import {
   VcsStatusInput,
   VcsStatusResult,
   VcsStatusStreamEvent,
+  VcsChangesInput,
+  VcsChangesResult,
+  VcsChangeFileInput,
+  VcsChangeFileResult,
+  VcsChangeMutationInput,
+  VcsChangeMutationResult,
 } from "./git.ts";
 import {
   ReviewDiffFileContentsInput,
@@ -214,6 +220,10 @@ export const WS_METHODS = {
   vcsCreateRef: "vcs.createRef",
   vcsSwitchRef: "vcs.switchRef",
   vcsInit: "vcs.init",
+  vcsChanges: "vcs.changes",
+  vcsChangeFile: "vcs.changeFile",
+  vcsStageChange: "vcs.stageChange",
+  vcsUnstageChange: "vcs.unstageChange",
 
   // Git workflow methods
   gitRunStackedAction: "git.runStackedAction",
@@ -650,6 +660,30 @@ export const WsVcsRefreshStatusRpc = Rpc.make(WS_METHODS.vcsRefreshStatus, {
   error: Schema.Union([GitManagerServiceError, EnvironmentAuthorizationError]),
 });
 
+export const WsVcsChangesRpc = Rpc.make(WS_METHODS.vcsChanges, {
+  payload: VcsChangesInput,
+  success: VcsChangesResult,
+  error: Schema.Union([ReviewDiffPreviewError, EnvironmentAuthorizationError]),
+});
+
+export const WsVcsChangeFileRpc = Rpc.make(WS_METHODS.vcsChangeFile, {
+  payload: VcsChangeFileInput,
+  success: VcsChangeFileResult,
+  error: Schema.Union([ReviewDiffPreviewError, EnvironmentAuthorizationError]),
+});
+
+export const WsVcsStageChangeRpc = Rpc.make(WS_METHODS.vcsStageChange, {
+  payload: VcsChangeMutationInput,
+  success: VcsChangeMutationResult,
+  error: Schema.Union([ReviewDiffPreviewError, EnvironmentAuthorizationError]),
+});
+
+export const WsVcsUnstageChangeRpc = Rpc.make(WS_METHODS.vcsUnstageChange, {
+  payload: VcsChangeMutationInput,
+  success: VcsChangeMutationResult,
+  error: Schema.Union([ReviewDiffPreviewError, EnvironmentAuthorizationError]),
+});
+
 export const WsGitRunStackedActionRpc = Rpc.make(WS_METHODS.gitRunStackedAction, {
   payload: GitRunStackedActionInput,
   success: GitActionProgressEvent,
@@ -997,6 +1031,10 @@ export const WsRpcGroup = RpcGroup.make(
   WsSubscribeVcsStatusRpc,
   WsVcsPullRpc,
   WsVcsRefreshStatusRpc,
+  WsVcsChangesRpc,
+  WsVcsChangeFileRpc,
+  WsVcsStageChangeRpc,
+  WsVcsUnstageChangeRpc,
   WsGitRunStackedActionRpc,
   WsGitResolvePullRequestRpc,
   WsGitPreparePullRequestThreadRpc,

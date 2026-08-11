@@ -26,6 +26,10 @@ import { AdaptiveWorkspaceLayout } from "./features/layout/AdaptiveWorkspaceLayo
 import { HardwareKeyboardCommandProvider } from "./features/keyboard/HardwareKeyboardCommandProvider";
 import { ReviewCommentComposerSheet } from "./features/review/ReviewCommentComposerSheet";
 import { ReviewSheet } from "./features/review/ReviewSheet";
+import { ChangesCommentComposerScreen } from "./features/changes/ChangesCommentComposerScreen";
+import { ChangesFileScreen } from "./features/changes/ChangesFileScreen";
+import { ChangesNotesScreen } from "./features/changes/ChangesNotesScreen";
+import { ChangesScreen } from "./features/changes/ChangesScreen";
 import { ThreadTerminalRouteScreen } from "./features/terminal/ThreadTerminalRouteScreen";
 import { GitBranchesSheet } from "./features/threads/git/GitBranchesSheet";
 import { GitCommitSheet } from "./features/threads/git/GitCommitSheet";
@@ -285,6 +289,7 @@ const WORKSPACE_OVERLAY_ROUTES = new Set([
   "SettingsLegal",
   "SettingsSheet",
   "ThreadReviewComment",
+  "ThreadChangesComment",
 ]);
 
 /**
@@ -433,6 +438,38 @@ export const RootStack = createNativeStackNavigator({
       options: {
         // Android cannot host the keyboard-driven comment composer inside a
         // formSheet; use a full-screen modal there instead.
+        presentation: Platform.OS === "android" ? "fullScreenModal" : "formSheet",
+        sheetAllowedDetents: Platform.OS === "android" ? undefined : [0.55, 0.92],
+        sheetGrabberVisible: Platform.OS !== "android",
+      },
+    }),
+    ThreadChanges: createNativeStackScreen({
+      screen: ChangesScreen,
+      linking: `${THREAD_LINKING_PREFIX}/changes`,
+      options: {
+        ...SOLID_HEADER_OPTIONS,
+        headerBackButtonMenuEnabled: false,
+      },
+    }),
+    ThreadChangesFile: createNativeStackScreen({
+      screen: ChangesFileScreen,
+      options: {
+        ...SOLID_HEADER_OPTIONS,
+        headerBackButtonMenuEnabled: false,
+      },
+    }),
+    ThreadChangesNotes: createNativeStackScreen({
+      screen: ChangesNotesScreen,
+      linking: `${THREAD_LINKING_PREFIX}/changes/notes`,
+      options: {
+        ...SOLID_HEADER_OPTIONS,
+        title: "Notes",
+        headerBackButtonMenuEnabled: false,
+      },
+    }),
+    ThreadChangesComment: createNativeStackScreen({
+      screen: ChangesCommentComposerScreen,
+      options: {
         presentation: Platform.OS === "android" ? "fullScreenModal" : "formSheet",
         sheetAllowedDetents: Platform.OS === "android" ? undefined : [0.55, 0.92],
         sheetGrabberVisible: Platform.OS !== "android",

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vite-plus/test";
+import * as Updates from "expo-updates";
 
 import {
   createAppUpdateLaunchCheck,
@@ -32,6 +33,18 @@ function makeUpdateClient(overrides: Partial<AppUpdateClient> = {}): AppUpdateCl
 }
 
 describe("runAppUpdateCheck", () => {
+  it("does not use Expo Updates in a development build", async () => {
+    vi.stubGlobal("__DEV__", true);
+    vi.mocked(Updates.checkForUpdateAsync).mockClear();
+
+    try {
+      await runAppUpdateCheck();
+      expect(Updates.checkForUpdateAsync).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("downloads and restarts when a new update is available", async () => {
     const client = makeUpdateClient({
       checkForUpdateAsync: vi.fn(async () => ({

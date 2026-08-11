@@ -259,8 +259,8 @@ export function GitOverviewSheet(props: GitOverviewSheetProps) {
         <View className="ml-12 h-px bg-border" />
         <SheetListRow
           icon="text.bubble"
-          title="Review changes"
-          subtitle="Inspect turn diffs, worktree changes, and base branch diff"
+          title="Review activity"
+          subtitle="Inspect turn diffs, combined worktree changes, and the base branch diff"
           disabled={busy || !isRepo}
           onPress={() => {
             const params = { environmentId, threadId };

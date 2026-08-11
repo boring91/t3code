@@ -1911,6 +1911,46 @@ const makeWsRpcLayer = (
               "rpc.aggregate": "vcs",
             },
           ),
+        [WS_METHODS.vcsChanges]: (input) =>
+          observeRpcEffect(WS_METHODS.vcsChanges, review.getChanges(input), {
+            "rpc.aggregate": "vcs",
+          }),
+        [WS_METHODS.vcsChangeFile]: (input) =>
+          observeRpcEffect(WS_METHODS.vcsChangeFile, review.getChangeFile(input), {
+            "rpc.aggregate": "vcs",
+          }),
+        [WS_METHODS.vcsStageChange]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.vcsStageChange,
+            review
+              .stageChange(input)
+              .pipe(
+                Effect.tap((result) =>
+                  result._tag === "applied"
+                    ? vcsStatusBroadcaster
+                        .refreshStatus(input.cwd)
+                        .pipe(Effect.ignoreCause({ log: true }))
+                    : Effect.void,
+                ),
+              ),
+            { "rpc.aggregate": "vcs" },
+          ),
+        [WS_METHODS.vcsUnstageChange]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.vcsUnstageChange,
+            review
+              .unstageChange(input)
+              .pipe(
+                Effect.tap((result) =>
+                  result._tag === "applied"
+                    ? vcsStatusBroadcaster
+                        .refreshStatus(input.cwd)
+                        .pipe(Effect.ignoreCause({ log: true }))
+                    : Effect.void,
+                ),
+              ),
+            { "rpc.aggregate": "vcs" },
+          ),
         [WS_METHODS.vcsPull]: (input) =>
           observeRpcEffect(
             WS_METHODS.vcsPull,

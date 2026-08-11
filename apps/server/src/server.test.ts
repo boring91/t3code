@@ -5121,6 +5121,17 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
 
   it.effect("routes websocket rpc git methods", () =>
     Effect.gen(function* () {
+      let statusRefreshCount = 0;
+      const changedFile = {
+        identity: "snapshot-1",
+        layer: "unstaged" as const,
+        kind: "modified" as const,
+        path: "src/index.ts",
+        oldPath: null,
+        insertions: 1,
+        deletions: 0,
+        display: "text" as const,
+      };
       yield* buildAppUnderTest({
         config: {
           cwd: "/tmp/repo",
@@ -5268,20 +5279,42 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
           },
           vcsStatusBroadcaster: {
             refreshStatus: () =>
-              Effect.succeed({
-                isRepo: true,
-                hasPrimaryRemote: true,
-                isDefaultRef: true,
-                refName: "main",
-                hasWorkingTreeChanges: false,
-                workingTree: { files: [], insertions: 0, deletions: 0 },
-                hasUpstream: true,
-                aheadCount: 0,
-                behindCount: 0,
-                pr: null,
+              Effect.sync(() => {
+                statusRefreshCount += 1;
+                return {
+                  isRepo: true,
+                  hasPrimaryRemote: true,
+                  isDefaultRef: true,
+                  refName: "main",
+                  hasWorkingTreeChanges: false,
+                  workingTree: { files: [], insertions: 0, deletions: 0 },
+                  hasUpstream: true,
+                  aheadCount: 0,
+                  behindCount: 0,
+                  pr: null,
+                };
               }),
           },
           reviewService: {
+            getChanges: (input) =>
+              Effect.succeed({ cwd: input.cwd, staged: [], unstaged: [changedFile] }),
+            getChangeFile: () =>
+              Effect.succeed({
+                _tag: "ready" as const,
+                change: changedFile,
+                oldContents: "before\n",
+                newContents: "after\n",
+              }),
+            stageChange: (input) =>
+              Effect.succeed({
+                _tag: "applied" as const,
+                changes: { cwd: input.cwd, staged: [], unstaged: [] },
+              }),
+            unstageChange: (input) =>
+              Effect.succeed({
+                _tag: "applied" as const,
+                changes: { cwd: input.cwd, staged: [], unstaged: [] },
+              }),
             getDiffPreview: (input) =>
               Effect.succeed({
                 cwd: input.cwd,
@@ -5331,6 +5364,33 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         ),
       );
       assert.equal(refreshedStatus.isRepo, true);
+
+      const changes = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) => client[WS_METHODS.vcsChanges]({ cwd: "/tmp/repo" })),
+      );
+      assert.equal(changes.unstaged[0]?.path, "src/index.ts");
+
+      const changeInput = {
+        cwd: "/tmp/repo",
+        layer: "unstaged" as const,
+        path: changedFile.path,
+        oldPath: null,
+        expectedIdentity: changedFile.identity,
+      };
+      const file = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) => client[WS_METHODS.vcsChangeFile](changeInput)),
+      );
+      assert.equal(file._tag, "ready");
+      const refreshesBeforeMutation = statusRefreshCount;
+      yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) => client[WS_METHODS.vcsStageChange](changeInput)),
+      );
+      yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[WS_METHODS.vcsUnstageChange]({ ...changeInput, layer: "staged" }),
+        ),
+      );
+      assert.equal(statusRefreshCount, refreshesBeforeMutation + 2);
 
       const stackedEvents = yield* Effect.scoped(
         withWsRpcClient(wsUrl, (client) =>
