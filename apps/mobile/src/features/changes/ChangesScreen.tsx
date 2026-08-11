@@ -68,6 +68,19 @@ function changeAction(change: VcsChange): MenuAction {
   };
 }
 
+function changeMutationTarget(change: VcsChange) {
+  return {
+    layer: change.layer,
+    path: change.path,
+    oldPath: change.oldPath,
+    expectedIdentity: change.identity,
+  };
+}
+
+function changeLookupKey(change: Pick<VcsChange, "layer" | "oldPath" | "path">) {
+  return `${change.layer}\0${change.path}\0${change.oldPath ?? ""}`;
+}
+
 function errorMessage(cause: unknown, fallback: string) {
   const error = Cause.squash(cause as Cause.Cause<unknown>);
   return error instanceof Error ? error.message : fallback;
@@ -104,6 +117,9 @@ export function ChangesScreen(props: ChangesScreenProps) {
   const { selectedThreadCwd } = useSelectedThreadWorktree();
   const serverConfig = useEnvironmentServerConfig(environmentId);
   const supportsChanges = serverConfig?.environment.capabilities.vcsChanges === true;
+  const supportsBatchMutations = serverConfig?.environment.capabilities.vcsBatchMutations === true;
+  const supportsChangesNotifications =
+    serverConfig?.environment.capabilities.vcsChangesNotifications === true;
   const cwd = selectedThreadCwd;
   const query = useEnvironmentQuery(
     cwd && supportsChanges ? vcsEnvironment.changes({ environmentId, input: { cwd } }) : null,
@@ -113,6 +129,8 @@ export function ChangesScreen(props: ChangesScreenProps) {
   );
   const stageChange = useAtomCommand(vcsEnvironment.stageChange, { reportFailure: false });
   const unstageChange = useAtomCommand(vcsEnvironment.unstageChange, { reportFailure: false });
+  const stageChanges = useAtomCommand(vcsEnvironment.stageChanges, { reportFailure: false });
+  const unstageChanges = useAtomCommand(vcsEnvironment.unstageChanges, { reportFailure: false });
   const [layer, setLayer] = useState<VcsChangeLayer>("unstaged");
   const [expandedDirectories, setExpandedDirectories] = useState<ReadonlySet<string>>(new Set());
   const [selectedChangeId, setSelectedChangeId] = useState<string | null>(null);
@@ -177,7 +195,10 @@ export function ChangesScreen(props: ChangesScreenProps) {
     return () => subscription.remove();
   }, [query.refresh]);
 
-  const statusSignature = JSON.stringify(status.data?.workingTree ?? null);
+  const statusSignature = JSON.stringify({
+    workingTree: status.data?.workingTree ?? null,
+    changesRevision: status.data?.changesRevision ?? null,
+  });
   useEffect(() => {
     if (previousStatusSignature.current === null) {
       previousStatusSignature.current = statusSignature;
@@ -269,37 +290,60 @@ export function ChangesScreen(props: ChangesScreenProps) {
       if (!cwd || requestedChanges.length === 0) return;
       setMutationError(null);
       const before = changes;
+      let refreshAfterMutation = !supportsChangesNotifications;
       try {
+        const currentChanges = before
+          ? new Map(
+              [...before.staged, ...before.unstaged].map((change) => [
+                changeLookupKey(change),
+                change,
+              ]),
+            )
+          : null;
         const selected = requestedChanges.map(
           (requestedChange) =>
-            before?.[requestedChange.layer].find(
-              (candidate) =>
-                candidate.path === requestedChange.path &&
-                candidate.oldPath === requestedChange.oldPath,
-            ) ?? requestedChange,
+            currentChanges?.get(changeLookupKey(requestedChange)) ?? requestedChange,
         );
-        const command = selected[0]?.layer === "unstaged" ? stageChange : unstageChange;
         let updatedChanges: VcsChangesResult | null = null;
-        for (const change of selected) {
+        if (supportsBatchMutations) {
+          const command = selected[0]?.layer === "unstaged" ? stageChanges : unstageChanges;
           const result = await command({
             environmentId,
             input: {
               cwd,
-              layer: change.layer,
-              path: change.path,
-              oldPath: change.oldPath,
-              expectedIdentity: change.identity,
+              changes: selected.map(changeMutationTarget),
             },
           });
           if (AsyncResult.isFailure(result)) {
+            refreshAfterMutation = true;
             setMutationError(errorMessage(result.cause, "The selection could not be updated."));
             return;
           }
           if (result.value._tag === "stale") {
+            refreshAfterMutation = true;
             setMutationError("Files changed since this list loaded. Refresh and try again.");
             return;
           }
           updatedChanges = result.value.changes;
+        } else {
+          const command = selected[0]?.layer === "unstaged" ? stageChange : unstageChange;
+          for (const change of selected) {
+            const result = await command({
+              environmentId,
+              input: { cwd, ...changeMutationTarget(change) },
+            });
+            if (AsyncResult.isFailure(result)) {
+              refreshAfterMutation = true;
+              setMutationError(errorMessage(result.cause, "The selection could not be updated."));
+              return;
+            }
+            if (result.value._tag === "stale") {
+              refreshAfterMutation = true;
+              setMutationError("Files changed since this list loaded. Refresh and try again.");
+              return;
+            }
+            updatedChanges = result.value.changes;
+          }
         }
         if (updatedChanges) {
           setMutationChanges(updatedChanges);
@@ -314,10 +358,22 @@ export function ChangesScreen(props: ChangesScreenProps) {
           );
         }
       } finally {
-        query.refresh();
+        if (refreshAfterMutation) query.refresh();
       }
     },
-    [changes, cwd, draftKey, environmentId, query.refresh, stageChange, unstageChange],
+    [
+      changes,
+      cwd,
+      draftKey,
+      environmentId,
+      query.refresh,
+      stageChange,
+      stageChanges,
+      supportsBatchMutations,
+      supportsChangesNotifications,
+      unstageChange,
+      unstageChanges,
+    ],
   );
 
   const openFile = useCallback(
@@ -425,7 +481,6 @@ export function ChangesScreen(props: ChangesScreenProps) {
           contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 16) }}
           renderItem={({ item }) => {
             if (item.kind === "directory") {
-              const directoryChanges = changesInDirectory(visibleChanges, item.id);
               const actionId = layer === "unstaged" ? "stage-folder" : "unstage-folder";
               return (
                 <View className="flex-row items-stretch border-b border-border-subtle">
@@ -463,7 +518,9 @@ export function ChangesScreen(props: ChangesScreenProps) {
                       },
                     ]}
                     onPressAction={({ nativeEvent }) => {
-                      if (nativeEvent.event === actionId) void mutate(directoryChanges);
+                      if (nativeEvent.event === actionId) {
+                        void mutate(changesInDirectory(visibleChanges, item.id));
+                      }
                     }}
                   >
                     <Pressable

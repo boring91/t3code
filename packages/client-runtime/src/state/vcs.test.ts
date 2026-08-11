@@ -662,6 +662,14 @@ describe("changes RPC atoms", () => {
             Ref.update(calls, (current) => [...current, WS_METHODS.vcsUnstageChange]).pipe(
               Effect.as({ _tag: "applied" as const, changes }),
             ),
+          [WS_METHODS.vcsStageChanges]: () =>
+            Ref.update(calls, (current) => [...current, WS_METHODS.vcsStageChanges]).pipe(
+              Effect.as({ _tag: "applied" as const, changes }),
+            ),
+          [WS_METHODS.vcsUnstageChanges]: () =>
+            Ref.update(calls, (current) => [...current, WS_METHODS.vcsUnstageChanges]).pipe(
+              Effect.as({ _tag: "applied" as const, changes }),
+            ),
         } as unknown as WsRpcProtocolClient;
         const supervisor = EnvironmentSupervisor.EnvironmentSupervisor.of({
           target: TARGET,
@@ -719,10 +727,47 @@ describe("changes RPC atoms", () => {
             ),
           ),
         ).toBe(true);
+        const batchInput = {
+          ...target,
+          input: {
+            ...target.input,
+            changes: [
+              {
+                layer: "unstaged" as const,
+                path: "file.ts",
+                oldPath: null,
+                expectedIdentity: "snapshot",
+              },
+            ],
+          },
+        };
+        expect(
+          AsyncResult.isSuccess(
+            yield* Effect.promise(() => atoms.stageChanges.run(registry, batchInput)),
+          ),
+        ).toBe(true);
+        expect(
+          AsyncResult.isSuccess(
+            yield* Effect.promise(() =>
+              atoms.unstageChanges.run(registry, {
+                ...batchInput,
+                input: {
+                  ...batchInput.input,
+                  changes: batchInput.input.changes.map((change) => ({
+                    ...change,
+                    layer: "staged" as const,
+                  })),
+                },
+              }),
+            ),
+          ),
+        ).toBe(true);
         expect(yield* Ref.get(calls)).toEqual([
           WS_METHODS.vcsChangeFile,
           WS_METHODS.vcsStageChange,
           WS_METHODS.vcsUnstageChange,
+          WS_METHODS.vcsStageChanges,
+          WS_METHODS.vcsUnstageChanges,
         ]);
       }),
     ),

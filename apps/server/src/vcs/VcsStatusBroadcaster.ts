@@ -162,6 +162,7 @@ export class VcsStatusBroadcaster extends Context.Service<
     readonly refreshLocalStatus: (
       cwd: string,
     ) => Effect.Effect<VcsStatusLocalResult, GitManagerServiceError>;
+    readonly notifyChanges: (cwd: string) => Effect.Effect<void, GitManagerServiceError>;
     readonly refreshStatus: (cwd: string) => Effect.Effect<VcsStatusResult, GitManagerServiceError>;
     readonly streamStatus: (
       input: VcsStatusInput,
@@ -192,7 +193,18 @@ export const make = Effect.gen(function* () {
     Scope.close(scope, Exit.void),
   );
   const cacheRef = yield* Ref.make(new Map<string, CachedVcsStatus>());
+  const changesRevisionRef = yield* Ref.make(new Map<string, number>());
   const pollersRef = yield* SynchronizedRef.make(new Map<string, ActiveRemotePoller>());
+
+  const withChangesRevision = Effect.fn("VcsStatusBroadcaster.withChangesRevision")(function* (
+    cwd: string,
+    local: VcsStatusLocalResult,
+  ) {
+    const revision = yield* Ref.get(changesRevisionRef).pipe(
+      Effect.map((revisions) => revisions.get(cwd)),
+    );
+    return revision === undefined ? local : { ...local, changesRevision: revision };
+  });
 
   const getCachedStatus = Effect.fn("VcsStatusBroadcaster.getCachedStatus")(function* (
     cwd: string,
@@ -202,9 +214,10 @@ export const make = Effect.gen(function* () {
 
   const updateCachedLocalStatus = Effect.fn("VcsStatusBroadcaster.updateCachedLocalStatus")(
     function* (cwd: string, local: VcsStatusLocalResult, options?: { publish?: boolean }) {
+      const versionedLocal = yield* withChangesRevision(cwd, local);
       const nextLocal = {
-        fingerprint: fingerprintStatusPart(local),
-        value: local,
+        fingerprint: fingerprintStatusPart(versionedLocal),
+        value: versionedLocal,
       } satisfies CachedValue<VcsStatusLocalResult>;
       const shouldPublish = yield* Ref.modify(cacheRef, (cache) => {
         const previous = cache.get(cwd) ?? { local: null, remote: null };
@@ -221,12 +234,12 @@ export const make = Effect.gen(function* () {
           cwd,
           event: {
             _tag: "localUpdated",
-            local,
+            local: versionedLocal,
           },
         });
       }
 
-      return local;
+      return versionedLocal;
     },
   );
 
@@ -266,9 +279,10 @@ export const make = Effect.gen(function* () {
     remote: VcsStatusRemoteResult | null,
     options?: { publish?: boolean },
   ) {
+    const versionedLocal = yield* withChangesRevision(cwd, local);
     const nextLocal = {
-      fingerprint: fingerprintStatusPart(local),
-      value: local,
+      fingerprint: fingerprintStatusPart(versionedLocal),
+      value: versionedLocal,
     } satisfies CachedValue<VcsStatusLocalResult>;
     const nextRemote = {
       fingerprint: fingerprintStatusPart(remote),
@@ -293,13 +307,13 @@ export const make = Effect.gen(function* () {
         cwd,
         event: {
           _tag: "snapshot",
-          local,
+          local: versionedLocal,
           remote,
         },
       });
     }
 
-    return mergeGitStatusParts(local, remote);
+    return mergeGitStatusParts(versionedLocal, remote);
   });
 
   const loadLocalStatus = Effect.fn("VcsStatusBroadcaster.loadLocalStatus")(function* (
@@ -352,6 +366,19 @@ export const make = Effect.gen(function* () {
   )(function* (rawCwd) {
     const cwd = yield* withFileSystem(normalizeCwd(rawCwd));
     return yield* refreshLocalStatusCore(cwd);
+  });
+
+  const notifyChanges: VcsStatusBroadcaster["Service"]["notifyChanges"] = Effect.fn(
+    "VcsStatusBroadcaster.notifyChanges",
+  )(function* (rawCwd) {
+    const cwd = yield* withFileSystem(normalizeCwd(rawCwd));
+    yield* Ref.update(changesRevisionRef, (revisions) => {
+      const next = new Map(revisions);
+      next.set(cwd, (revisions.get(cwd) ?? 0) + 1);
+      return next;
+    });
+    const local = yield* getOrLoadLocalStatus(cwd);
+    yield* updateCachedLocalStatus(cwd, local, { publish: true });
   });
 
   const refreshRemoteStatus = Effect.fn("VcsStatusBroadcaster.refreshRemoteStatus")(function* (
@@ -588,6 +615,7 @@ export const make = Effect.gen(function* () {
   return VcsStatusBroadcaster.of({
     getStatus,
     refreshLocalStatus,
+    notifyChanges,
     refreshStatus,
     streamStatus,
   });

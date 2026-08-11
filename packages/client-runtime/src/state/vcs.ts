@@ -294,6 +294,18 @@ export function createVcsEnvironmentAtoms<R, E>(
       scheduler: vcsCommandScheduler,
       concurrency: vcsCommandConcurrency,
     }),
+    stageChanges: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:vcs:stage-changes",
+      tag: WS_METHODS.vcsStageChanges,
+      scheduler: vcsCommandScheduler,
+      concurrency: vcsCommandConcurrency,
+    }),
+    unstageChanges: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:vcs:unstage-changes",
+      tag: WS_METHODS.vcsUnstageChanges,
+      scheduler: vcsCommandScheduler,
+      concurrency: vcsCommandConcurrency,
+    }),
     status: createEnvironmentSubscriptionAtomFamily(runtime, {
       label: "environment-data:vcs:status",
       subscribe: (input: EnvironmentRpcInput<typeof WS_METHODS.subscribeVcsStatus>) =>

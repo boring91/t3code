@@ -402,6 +402,7 @@ describe("ProviderCommandReactor", () => {
           getStatus: () => Effect.die("getStatus should not be called in this test"),
           refreshLocalStatus: () =>
             Effect.die("refreshLocalStatus should not be called in this test"),
+          notifyChanges: () => Effect.die("notifyChanges should not be called in this test"),
           refreshStatus,
           streamStatus: () => Stream.die("streamStatus should not be called in this test"),
         }),

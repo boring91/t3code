@@ -26,10 +26,10 @@ import {
   type ReviewDiffPreviewSource,
   type VcsRef,
   type VcsChange,
+  type VcsChangeBatchMutationInput,
   type VcsChangeFileInput,
   type VcsChangeKind,
   type VcsChangeLayer,
-  type VcsChangeMutationInput,
   type VcsChangesResult,
 } from "@t3tools/contracts";
 import { dedupeRemoteBranchesWithLocalMatches, normalizeGitRemoteUrl } from "@t3tools/shared/git";
@@ -417,6 +417,10 @@ export function splitNullSeparatedGitStdoutPaths(
   result: Pick<GitVcsDriver.ExecuteGitResult, "stdout" | "stdoutTruncated">,
 ): string[] {
   return splitNullSeparatedPaths(result.stdout, result.stdoutTruncated);
+}
+
+export function encodeNullSeparatedGitPathspecs(paths: ReadonlyArray<string>): string {
+  return `${paths.join("\0")}\0`;
 }
 
 function sanitizeRemoteName(value: string): string {
@@ -1041,6 +1045,14 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     allowNonZeroExit = false,
   ): Effect.Effect<void, GitCommandError> =>
     executeGit(operation, cwd, args, { allowNonZeroExit }).pipe(Effect.asVoid);
+
+  const runGitWithOptions = (
+    operation: string,
+    cwd: string,
+    args: readonly string[],
+    options: ExecuteGitOptions,
+  ): Effect.Effect<void, GitCommandError> =>
+    executeGit(operation, cwd, args, options).pipe(Effect.asVoid);
 
   const runGitStdout = (
     operation: string,
@@ -2215,6 +2227,9 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       (change) => change.path === input.path && change.oldPath === input.oldPath,
     ) ?? null;
 
+  const exactChangeTargetKey = (input: Pick<VcsChangeFileInput, "path" | "oldPath">) =>
+    `${input.path}\0${input.oldPath ?? ""}`;
+
   type ChangeFileSide =
     | { readonly _tag: "contents"; readonly contents: string }
     | { readonly _tag: "unrenderable"; readonly reason: "binary" | "too-large" };
@@ -2349,28 +2364,41 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     };
   });
 
-  const mutateChange = Effect.fn("GitVcsDriver.mutateChange")(function* (
-    input: VcsChangeMutationInput,
+  const mutateChanges = Effect.fn("GitVcsDriver.mutateChanges")(function* (
+    input: VcsChangeBatchMutationInput,
     operation: "stage" | "unstage",
   ) {
     const changes = yield* getChanges({ cwd: input.cwd });
     const expectedLayer = operation === "stage" ? "unstaged" : "staged";
-    if (input.layer !== expectedLayer) {
+    if (input.changes.some((change) => change.layer !== expectedLayer)) {
       return { _tag: "stale" as const, changes };
     }
-    const change = findExpectedChange(changes, input);
-    if (!change || change.identity !== input.expectedIdentity) {
-      return { _tag: "stale" as const, changes };
+    const changesByTarget = new Map(
+      changes[expectedLayer].map((change) => [exactChangeTargetKey(change), change]),
+    );
+    const selectedChanges: VcsChange[] = [];
+    for (const requestedChange of input.changes) {
+      const change = changesByTarget.get(exactChangeTargetKey(requestedChange));
+      if (!change || change.identity !== requestedChange.expectedIdentity) {
+        return { _tag: "stale" as const, changes };
+      }
+      selectedChanges.push(change);
     }
-    const paths = change.oldPath === null ? [change.path] : [change.oldPath, change.path];
+    const paths = Array.from(
+      new Set(
+        selectedChanges.flatMap((change) =>
+          change.oldPath === null ? [change.path] : [change.oldPath, change.path],
+        ),
+      ),
+    );
+    const pathspecs = encodeNullSeparatedGitPathspecs(paths);
     if (operation === "stage") {
-      yield* runGit("GitVcsDriver.stageChange", input.cwd, [
-        "--literal-pathspecs",
-        "add",
-        "-A",
-        "--",
-        ...paths,
-      ]);
+      yield* runGitWithOptions(
+        "GitVcsDriver.stageChange",
+        input.cwd,
+        ["--literal-pathspecs", "add", "-A", "--pathspec-from-file=-", "--pathspec-file-nul"],
+        { stdin: pathspecs },
+      );
     } else {
       const head = yield* executeGit(
         "GitVcsDriver.unstageChange.head",
@@ -2378,21 +2406,42 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
         ["rev-parse", "--verify", "HEAD"],
         { allowNonZeroExit: true },
       );
-      yield* runGit(
+      yield* runGitWithOptions(
         "GitVcsDriver.unstageChange",
         input.cwd,
         head.exitCode === 0
-          ? ["--literal-pathspecs", "reset", "-q", "HEAD", "--", ...paths]
-          : ["--literal-pathspecs", "rm", "--cached", "--ignore-unmatch", "--", ...paths],
+          ? [
+              "--literal-pathspecs",
+              "reset",
+              "-q",
+              "--pathspec-from-file=-",
+              "--pathspec-file-nul",
+              "HEAD",
+            ]
+          : [
+              "--literal-pathspecs",
+              "rm",
+              "--cached",
+              "--ignore-unmatch",
+              "--pathspec-from-file=-",
+              "--pathspec-file-nul",
+            ],
+        { stdin: pathspecs },
       );
-      if (head.exitCode === 0 && change.kind === "renamed") {
+      const renamedPaths = selectedChanges.flatMap((change) =>
+        change.kind === "renamed" ? [change.path] : [],
+      );
+      if (head.exitCode === 0 && renamedPaths.length > 0) {
         // Intent-to-add keeps Git's unstaged rename detection intact without
         // introducing staged content, so a later whole-file Stage stays atomic.
         yield* executeGit(
           "GitVcsDriver.unstageChange.preserveRename",
           input.cwd,
-          ["--literal-pathspecs", "add", "-N", "--", change.path],
-          { allowNonZeroExit: true },
+          ["--literal-pathspecs", "add", "-N", "--pathspec-from-file=-", "--pathspec-file-nul"],
+          {
+            allowNonZeroExit: true,
+            stdin: encodeNullSeparatedGitPathspecs(renamedPaths),
+          },
         );
       }
     }
@@ -2400,9 +2449,13 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
   });
 
   const stageChange: GitVcsDriver.GitVcsDriver["Service"]["stageChange"] = (input) =>
-    mutateChange(input, "stage");
+    mutateChanges({ cwd: input.cwd, changes: [input] }, "stage");
   const unstageChange: GitVcsDriver.GitVcsDriver["Service"]["unstageChange"] = (input) =>
-    mutateChange(input, "unstage");
+    mutateChanges({ cwd: input.cwd, changes: [input] }, "unstage");
+  const stageChanges: GitVcsDriver.GitVcsDriver["Service"]["stageChanges"] = (input) =>
+    mutateChanges(input, "stage");
+  const unstageChanges: GitVcsDriver.GitVcsDriver["Service"]["unstageChanges"] = (input) =>
+    mutateChanges(input, "unstage");
 
   const prepareCommitContext: GitVcsDriver.GitVcsDriver["Service"]["prepareCommitContext"] =
     Effect.fn("prepareCommitContext")(function* (cwd, filePaths, preserveIndex) {
@@ -3758,6 +3811,8 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     getChangeFile,
     stageChange,
     unstageChange,
+    stageChanges,
+    unstageChanges,
     prepareCommitContext,
     commit: (cwd, subject, body, options) =>
       withListRefsInvalidation(cwd, commit(cwd, subject, body, options)),

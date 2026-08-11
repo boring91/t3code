@@ -5122,6 +5122,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
   it.effect("routes websocket rpc git methods", () =>
     Effect.gen(function* () {
       let statusRefreshCount = 0;
+      let changesNotificationCount = 0;
       const changedFile = {
         identity: "snapshot-1",
         layer: "unstaged" as const,
@@ -5278,6 +5279,10 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
             switchRef: (input) => Effect.succeed({ refName: input.refName }),
           },
           vcsStatusBroadcaster: {
+            notifyChanges: () =>
+              Effect.sync(() => {
+                changesNotificationCount += 1;
+              }),
             refreshStatus: () =>
               Effect.sync(() => {
                 statusRefreshCount += 1;
@@ -5311,6 +5316,16 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
                 changes: { cwd: input.cwd, staged: [], unstaged: [] },
               }),
             unstageChange: (input) =>
+              Effect.succeed({
+                _tag: "applied" as const,
+                changes: { cwd: input.cwd, staged: [], unstaged: [] },
+              }),
+            stageChanges: (input) =>
+              Effect.succeed({
+                _tag: "applied" as const,
+                changes: { cwd: input.cwd, staged: [], unstaged: [] },
+              }),
+            unstageChanges: (input) =>
               Effect.succeed({
                 _tag: "applied" as const,
                 changes: { cwd: input.cwd, staged: [], unstaged: [] },
@@ -5382,6 +5397,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       );
       assert.equal(file._tag, "ready");
       const refreshesBeforeMutation = statusRefreshCount;
+      const notificationsBeforeMutation = changesNotificationCount;
       yield* Effect.scoped(
         withWsRpcClient(wsUrl, (client) => client[WS_METHODS.vcsStageChange](changeInput)),
       );
@@ -5390,7 +5406,38 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
           client[WS_METHODS.vcsUnstageChange]({ ...changeInput, layer: "staged" }),
         ),
       );
-      assert.equal(statusRefreshCount, refreshesBeforeMutation + 2);
+      yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[WS_METHODS.vcsStageChanges]({
+            cwd: changeInput.cwd,
+            changes: [
+              {
+                layer: changeInput.layer,
+                path: changeInput.path,
+                oldPath: changeInput.oldPath,
+                expectedIdentity: changeInput.expectedIdentity,
+              },
+            ],
+          }),
+        ),
+      );
+      yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[WS_METHODS.vcsUnstageChanges]({
+            cwd: changeInput.cwd,
+            changes: [
+              {
+                layer: "staged",
+                path: changeInput.path,
+                oldPath: changeInput.oldPath,
+                expectedIdentity: changeInput.expectedIdentity,
+              },
+            ],
+          }),
+        ),
+      );
+      assert.equal(statusRefreshCount, refreshesBeforeMutation);
+      assert.equal(changesNotificationCount, notificationsBeforeMutation + 4);
 
       const stackedEvents = yield* Effect.scoped(
         withWsRpcClient(wsUrl, (client) =>

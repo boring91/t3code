@@ -7,6 +7,7 @@ import {
   GitRunStackedActionResult,
   GitRunStackedActionInput,
   GitResolvePullRequestResult,
+  VcsChangeBatchMutationInput,
   VcsChangeFileInput,
   VcsChangeMutationInput,
 } from "./git.ts";
@@ -21,6 +22,8 @@ const decodeResolvePullRequestResult = Schema.decodeUnknownSync(GitResolvePullRe
 const decodeChangeFileInput = Schema.decodeUnknownSync(VcsChangeFileInput);
 const decodeChangeMutationInput = Schema.decodeUnknownSync(VcsChangeMutationInput);
 const encodeChangeMutationInput = Schema.encodeSync(VcsChangeMutationInput);
+const decodeChangeBatchMutationInput = Schema.decodeUnknownSync(VcsChangeBatchMutationInput);
+const encodeChangeBatchMutationInput = Schema.encodeSync(VcsChangeBatchMutationInput);
 
 describe("VcsChangeFileInput", () => {
   it("preserves exact Git path whitespace", () => {
@@ -46,6 +49,24 @@ describe("VcsChangeFileInput", () => {
 
     expect(parsed.path).toBe("folder/ leading\nname ");
     expect(encodeChangeMutationInput(parsed)).toEqual(parsed);
+  });
+
+  it("encodes a non-empty exact-path batch mutation", () => {
+    const parsed = decodeChangeBatchMutationInput({
+      cwd: "/repo",
+      changes: [
+        {
+          layer: "unstaged",
+          path: "folder/ leading\nname ",
+          oldPath: null,
+          expectedIdentity: "snapshot",
+        },
+      ],
+    });
+
+    expect(parsed.changes[0]?.path).toBe("folder/ leading\nname ");
+    expect(encodeChangeBatchMutationInput(parsed)).toEqual(parsed);
+    expect(() => decodeChangeBatchMutationInput({ cwd: "/repo", changes: [] })).toThrow();
   });
 });
 

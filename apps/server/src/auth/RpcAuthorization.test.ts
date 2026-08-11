@@ -57,6 +57,12 @@ describe("RPC authorization scopes", () => {
     expect(requiredScopeForRpcMethod(WS_METHODS.vcsUnstageChange)).toBe(
       AuthOrchestrationOperateScope,
     );
+    expect(requiredScopeForRpcMethod(WS_METHODS.vcsStageChanges)).toBe(
+      AuthOrchestrationOperateScope,
+    );
+    expect(requiredScopeForRpcMethod(WS_METHODS.vcsUnstageChanges)).toBe(
+      AuthOrchestrationOperateScope,
+    );
   });
 
   it("rejects unknown RPC method names", () => {

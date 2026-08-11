@@ -33,6 +33,7 @@ import {
   type VcsChangesResult,
   type VcsChangeFileInput,
   type VcsChangeFileResult,
+  type VcsChangeBatchMutationInput,
   type VcsChangeMutationInput,
   type VcsChangeMutationResult,
 } from "@t3tools/contracts";
@@ -253,6 +254,12 @@ export class GitVcsDriver extends Context.Service<
     ) => Effect.Effect<VcsChangeMutationResult, GitCommandError>;
     readonly unstageChange: (
       input: VcsChangeMutationInput,
+    ) => Effect.Effect<VcsChangeMutationResult, GitCommandError>;
+    readonly stageChanges: (
+      input: VcsChangeBatchMutationInput,
+    ) => Effect.Effect<VcsChangeMutationResult, GitCommandError>;
+    readonly unstageChanges: (
+      input: VcsChangeBatchMutationInput,
     ) => Effect.Effect<VcsChangeMutationResult, GitCommandError>;
     readonly prepareCommitContext: (
       cwd: string,

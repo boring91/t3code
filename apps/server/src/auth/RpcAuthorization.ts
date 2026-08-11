@@ -87,6 +87,8 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.vcsChangeFile]: AuthOrchestrationReadScope,
   [WS_METHODS.vcsStageChange]: AuthOrchestrationOperateScope,
   [WS_METHODS.vcsUnstageChange]: AuthOrchestrationOperateScope,
+  [WS_METHODS.vcsStageChanges]: AuthOrchestrationOperateScope,
+  [WS_METHODS.vcsUnstageChanges]: AuthOrchestrationOperateScope,
   [WS_METHODS.vcsPull]: AuthOrchestrationOperateScope,
   [WS_METHODS.gitRunStackedAction]: AuthOrchestrationOperateScope,
   [WS_METHODS.gitResolvePullRequest]: AuthOrchestrationOperateScope,

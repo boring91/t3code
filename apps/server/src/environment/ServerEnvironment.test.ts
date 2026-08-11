@@ -72,6 +72,8 @@ it.layer(NodeServices.layer)("ServerEnvironmentLive", (it) => {
       expect(second.capabilities.pullRequests).toBe(true);
       expect(second.capabilities.threadTitleRegeneration).toBe(true);
       expect(second.capabilities.vcsChanges).toBe(true);
+      expect(second.capabilities.vcsBatchMutations).toBe(true);
+      expect(second.capabilities.vcsChangesNotifications).toBe(true);
     }),
   );
 

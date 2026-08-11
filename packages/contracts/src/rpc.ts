@@ -47,6 +47,7 @@ import {
   VcsChangesResult,
   VcsChangeFileInput,
   VcsChangeFileResult,
+  VcsChangeBatchMutationInput,
   VcsChangeMutationInput,
   VcsChangeMutationResult,
 } from "./git.ts";
@@ -224,6 +225,8 @@ export const WS_METHODS = {
   vcsChangeFile: "vcs.changeFile",
   vcsStageChange: "vcs.stageChange",
   vcsUnstageChange: "vcs.unstageChange",
+  vcsStageChanges: "vcs.stageChanges",
+  vcsUnstageChanges: "vcs.unstageChanges",
 
   // Git workflow methods
   gitRunStackedAction: "git.runStackedAction",
@@ -684,6 +687,18 @@ export const WsVcsUnstageChangeRpc = Rpc.make(WS_METHODS.vcsUnstageChange, {
   error: Schema.Union([ReviewDiffPreviewError, EnvironmentAuthorizationError]),
 });
 
+export const WsVcsStageChangesRpc = Rpc.make(WS_METHODS.vcsStageChanges, {
+  payload: VcsChangeBatchMutationInput,
+  success: VcsChangeMutationResult,
+  error: Schema.Union([ReviewDiffPreviewError, EnvironmentAuthorizationError]),
+});
+
+export const WsVcsUnstageChangesRpc = Rpc.make(WS_METHODS.vcsUnstageChanges, {
+  payload: VcsChangeBatchMutationInput,
+  success: VcsChangeMutationResult,
+  error: Schema.Union([ReviewDiffPreviewError, EnvironmentAuthorizationError]),
+});
+
 export const WsGitRunStackedActionRpc = Rpc.make(WS_METHODS.gitRunStackedAction, {
   payload: GitRunStackedActionInput,
   success: GitActionProgressEvent,
@@ -1035,6 +1050,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsVcsChangeFileRpc,
   WsVcsStageChangeRpc,
   WsVcsUnstageChangeRpc,
+  WsVcsStageChangesRpc,
+  WsVcsUnstageChangesRpc,
   WsGitRunStackedActionRpc,
   WsGitResolvePullRequestRpc,
   WsGitPreparePullRequestThreadRpc,

@@ -21,6 +21,7 @@ import type {
   VcsChangesResult,
   VcsChangeFileInput,
   VcsChangeFileResult,
+  VcsChangeBatchMutationInput,
   VcsChangeMutationInput,
   VcsChangeMutationResult,
 } from "./git.ts";
@@ -1245,6 +1246,8 @@ export interface EnvironmentApi {
     changeFile: (input: VcsChangeFileInput) => Promise<VcsChangeFileResult>;
     stageChange: (input: VcsChangeMutationInput) => Promise<VcsChangeMutationResult>;
     unstageChange: (input: VcsChangeMutationInput) => Promise<VcsChangeMutationResult>;
+    stageChanges: (input: VcsChangeBatchMutationInput) => Promise<VcsChangeMutationResult>;
+    unstageChanges: (input: VcsChangeBatchMutationInput) => Promise<VcsChangeMutationResult>;
     onStatus: (
       input: VcsStatusInput,
       callback: (status: VcsStatusResult) => void,

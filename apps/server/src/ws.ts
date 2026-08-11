@@ -1928,7 +1928,7 @@ const makeWsRpcLayer = (
                 Effect.tap((result) =>
                   result._tag === "applied"
                     ? vcsStatusBroadcaster
-                        .refreshStatus(input.cwd)
+                        .notifyChanges(input.cwd)
                         .pipe(Effect.ignoreCause({ log: true }))
                     : Effect.void,
                 ),
@@ -1944,7 +1944,39 @@ const makeWsRpcLayer = (
                 Effect.tap((result) =>
                   result._tag === "applied"
                     ? vcsStatusBroadcaster
-                        .refreshStatus(input.cwd)
+                        .notifyChanges(input.cwd)
+                        .pipe(Effect.ignoreCause({ log: true }))
+                    : Effect.void,
+                ),
+              ),
+            { "rpc.aggregate": "vcs" },
+          ),
+        [WS_METHODS.vcsStageChanges]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.vcsStageChanges,
+            review
+              .stageChanges(input)
+              .pipe(
+                Effect.tap((result) =>
+                  result._tag === "applied"
+                    ? vcsStatusBroadcaster
+                        .notifyChanges(input.cwd)
+                        .pipe(Effect.ignoreCause({ log: true }))
+                    : Effect.void,
+                ),
+              ),
+            { "rpc.aggregate": "vcs" },
+          ),
+        [WS_METHODS.vcsUnstageChanges]: (input) =>
+          observeRpcEffect(
+            WS_METHODS.vcsUnstageChanges,
+            review
+              .unstageChanges(input)
+              .pipe(
+                Effect.tap((result) =>
+                  result._tag === "applied"
+                    ? vcsStatusBroadcaster
+                        .notifyChanges(input.cwd)
                         .pipe(Effect.ignoreCause({ log: true }))
                     : Effect.void,
                 ),

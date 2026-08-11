@@ -69,6 +69,10 @@ export const ExecutionEnvironmentCapabilities = Schema.Struct({
   threadTitleRegeneration: Schema.optionalKey(Schema.Boolean),
   /** Server supports the Git-backed staged/unstaged Changes workflow. */
   vcsChanges: Schema.optionalKey(Schema.Boolean),
+  /** Server can stage or unstage multiple exact change identities in one Git mutation. */
+  vcsBatchMutations: Schema.optionalKey(Schema.Boolean),
+  /** Server publishes an index revision through the VCS status stream after change mutations. */
+  vcsChangesNotifications: Schema.optionalKey(Schema.Boolean),
   /** The update path clients should offer for this server. Absent on
       servers that must be relaunched manually (dev checkouts, Windows
       foreground runs, pre-update servers). */

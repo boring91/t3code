@@ -21,12 +21,14 @@ newlines, glob characters, and rename pairs intact.
 index, reads the working file only for the unstaged new side, and places a one-megabyte bound on
 rendered text. Binary and oversized results remain actionable without returning their contents.
 
-`vcs.stageChange` and `vcs.unstageChange` accept one file identity displayed by the client. The
-server re-reads Git state, validates that identity, and returns `stale` without changing the index
-when it no longer matches. Directory actions invoke that released operation once per descendant;
-this preserves compatibility with the current Nightly server but is slow for large directories.
-If the shared server contract gains a batch mutation, directory actions should adopt it. Successful
-mutations publish refreshed local VCS status. Unstage uses `HEAD` when it exists and removes paths
+`vcs.stageChange` and `vcs.unstageChange` retain the one-file mutation contract. New servers also
+advertise `vcsBatchMutations` and expose `vcs.stageChanges` and `vcs.unstageChanges`. A batch
+re-reads Git state, validates every requested identity before changing the index, and returns
+`stale` without changing anything if any entry no longer matches. Directory actions use one batch
+operation instead of one operation per file when advertised, and fall back to sequential one-file
+requests for older servers. Successful mutations publish a lightweight Changes revision through
+the existing VCS status stream when the server advertises `vcsChangesNotifications`; mobile keeps
+its direct refresh fallback for older servers. Unstage uses `HEAD` when it exists and removes paths
 from the initial index in an unborn repository.
 
 The optional `preserveIndex` flag on a stacked Git action is used by the mobile commit sheet. It

@@ -17,6 +17,7 @@ import {
   type VcsChangesResult,
   type VcsChangeFileInput,
   type VcsChangeFileResult,
+  type VcsChangeBatchMutationInput,
   type VcsChangeMutationInput,
   type VcsChangeMutationResult,
 } from "@t3tools/contracts";
@@ -45,6 +46,12 @@ export class ReviewService extends Context.Service<
     ) => Effect.Effect<VcsChangeMutationResult, ReviewDiffPreviewError>;
     readonly unstageChange: (
       input: VcsChangeMutationInput,
+    ) => Effect.Effect<VcsChangeMutationResult, ReviewDiffPreviewError>;
+    readonly stageChanges: (
+      input: VcsChangeBatchMutationInput,
+    ) => Effect.Effect<VcsChangeMutationResult, ReviewDiffPreviewError>;
+    readonly unstageChanges: (
+      input: VcsChangeBatchMutationInput,
     ) => Effect.Effect<VcsChangeMutationResult, ReviewDiffPreviewError>;
   }
 >()("t3/review/ReviewService") {}
@@ -175,6 +182,20 @@ export const make = Effect.gen(function* () {
     return yield* git.unstageChange(input);
   });
 
+  const stageChanges: ReviewService["Service"]["stageChanges"] = Effect.fn(
+    "ReviewService.stageChanges",
+  )(function* (input) {
+    yield* assertWorkspaceBoundCwd("ReviewService.stageChanges", input.cwd);
+    return yield* git.stageChanges(input);
+  });
+
+  const unstageChanges: ReviewService["Service"]["unstageChanges"] = Effect.fn(
+    "ReviewService.unstageChanges",
+  )(function* (input) {
+    yield* assertWorkspaceBoundCwd("ReviewService.unstageChanges", input.cwd);
+    return yield* git.unstageChanges(input);
+  });
+
   return ReviewService.of({
     getDiffPreview,
     getDiffFileContents,
@@ -182,6 +203,8 @@ export const make = Effect.gen(function* () {
     getChangeFile,
     stageChange,
     unstageChange,
+    stageChanges,
+    unstageChanges,
   });
 });
 

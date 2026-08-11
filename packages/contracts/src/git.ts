@@ -183,6 +183,12 @@ export type VcsChangeFileResult = typeof VcsChangeFileResult.Type;
 export const VcsChangeMutationInput = VcsChangeFileInput;
 export type VcsChangeMutationInput = typeof VcsChangeMutationInput.Type;
 
+export const VcsChangeBatchMutationInput = Schema.Struct({
+  cwd: TrimmedNonEmptyStringSchema,
+  changes: Schema.Array(VcsChangeTarget).check(Schema.isMinLength(1)),
+});
+export type VcsChangeBatchMutationInput = typeof VcsChangeBatchMutationInput.Type;
+
 export const VcsChangeMutationResult = Schema.Union([
   Schema.TaggedStruct("applied", {
     changes: VcsChangesResult,
@@ -291,6 +297,8 @@ const VcsStatusChangeRequest = Schema.Struct({
 
 const VcsStatusLocalShape = {
   isRepo: Schema.Boolean,
+  /** In-memory revision bumped when the Git index changes without altering worktree totals. */
+  changesRevision: Schema.optional(NonNegativeInt),
   sourceControlProvider: Schema.optional(SourceControlProviderInfo),
   hasPrimaryRemote: Schema.Boolean,
   isDefaultRef: Schema.Boolean,

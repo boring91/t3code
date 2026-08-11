@@ -127,6 +127,7 @@ describe("applyGitStatusStreamEvent", () => {
   it("preserves local-only fields when applying a remote update", () => {
     const current: VcsStatusResult = {
       isRepo: true,
+      changesRevision: 3,
       sourceControlProvider: {
         kind: "github",
         name: "GitHub",
@@ -161,5 +162,21 @@ describe("applyGitStatusStreamEvent", () => {
       behindCount: 1,
       pr: null,
     });
+
+    expect(
+      applyGitStatusStreamEvent(current, {
+        _tag: "localUpdated",
+        local: {
+          isRepo: true,
+          changesRevision: 4,
+          sourceControlProvider: current.sourceControlProvider,
+          hasPrimaryRemote: true,
+          isDefaultRef: false,
+          refName: "feature/demo",
+          hasWorkingTreeChanges: true,
+          workingTree: current.workingTree,
+        },
+      }),
+    ).toEqual({ ...current, changesRevision: 4 });
   });
 });

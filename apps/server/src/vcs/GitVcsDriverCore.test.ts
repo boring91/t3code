@@ -21,6 +21,7 @@ import {
 } from "@t3tools/contracts";
 import { ServerConfig } from "../config.ts";
 import {
+  encodeNullSeparatedGitPathspecs,
   makeGitVcsDriverCore,
   parseExactGitStatus,
   splitNullSeparatedGitStdoutPaths,
@@ -44,6 +45,19 @@ const changeMutationInput = (
   path: change.path,
   oldPath: change.oldPath,
   expectedIdentity: change.identity,
+});
+
+const changeBatchMutationInput = (
+  cwd: string,
+  changes: ReadonlyArray<Pick<VcsChange, "identity" | "layer" | "oldPath" | "path">>,
+) => ({
+  cwd,
+  changes: changes.map((change) => ({
+    layer: change.layer,
+    path: change.path,
+    oldPath: change.oldPath,
+    expectedIdentity: change.identity,
+  })),
 });
 
 const makeNonRepositoryHandle = () =>
@@ -158,6 +172,13 @@ it("parses blob hashes from unmerged porcelain-v2 records", () => {
     indexHash: "bbbbb",
     unmerged: true,
   });
+});
+
+it("encodes exact batch paths as NUL-delimited stdin", () => {
+  assert.equal(
+    encodeNullSeparatedGitPathspecs(["folder/a.txt", "folder/ leading\nname ", "literal[1].ts"]),
+    "folder/a.txt\0folder/ leading\nname \0literal[1].ts\0",
+  );
 });
 
 it.effect("uses stable diagnostics for every parsed non-repository command", () => {
@@ -920,7 +941,7 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
       }),
     );
 
-    it.effect("stages and unstages a folder selection sequentially", () =>
+    it.effect("validates then stages and unstages a folder selection as a batch", () =>
       Effect.gen(function* () {
         const cwd = yield* makeTmpDir();
         yield* initRepoWithCommit(cwd);
@@ -931,26 +952,30 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
         const selected = (yield* driver.getChanges({ cwd })).unstaged.filter((change) =>
           change.path.startsWith("folder/"),
         );
-        let staged = yield* driver.getChanges({ cwd });
-        for (const change of selected) {
-          const result = yield* driver.stageChange(changeMutationInput(cwd, change));
-          assert.equal(result._tag, "applied");
-          if (result._tag !== "applied") return;
-          staged = result.changes;
-        }
+
+        yield* writeTextFile(cwd, "folder/b.txt", "changed after snapshot\n");
+        const stale = yield* driver.stageChanges(changeBatchMutationInput(cwd, selected));
+        assert.equal(stale._tag, "stale");
+        assert.equal(yield* git(cwd, ["diff", "--cached", "--name-only"]), "");
+
+        const refreshed = (yield* driver.getChanges({ cwd })).unstaged.filter((change) =>
+          change.path.startsWith("folder/"),
+        );
+        const stagedResult = yield* driver.stageChanges(changeBatchMutationInput(cwd, refreshed));
+        assert.equal(stagedResult._tag, "applied");
+        if (stagedResult._tag !== "applied") return;
         assert.deepStrictEqual(
-          staged.staged.map((change) => change.path),
+          stagedResult.changes.staged.map((change) => change.path),
           ["folder/a.txt", "folder/b.txt"],
         );
 
-        let unstaged = staged;
-        for (const change of staged.staged) {
-          const result = yield* driver.unstageChange(changeMutationInput(cwd, change));
-          assert.equal(result._tag, "applied");
-          if (result._tag !== "applied") return;
-          unstaged = result.changes;
+        const unstagedResult = yield* driver.unstageChanges(
+          changeBatchMutationInput(cwd, stagedResult.changes.staged),
+        );
+        assert.equal(unstagedResult._tag, "applied");
+        if (unstagedResult._tag === "applied") {
+          assert.lengthOf(unstagedResult.changes.staged, 0);
         }
-        assert.lengthOf(unstaged.staged, 0);
       }),
     );
 

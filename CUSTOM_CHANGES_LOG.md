@@ -10,8 +10,12 @@ mobile Changes workflow or its change-file, stage, and unstage RPCs.
 
 - Adds mobile Staged and Unstaged trees, on-demand full-file diffs, native overview rails, file and
   folder staging controls, stale-snapshot protection, and staged-index-aware commits.
-- The current Nightly mutation contract accepts one file per request. Folder actions therefore run
-  sequentially; replace this fallback if upstream ships a compatible batch mutation RPC.
+- Adds capability-gated batch stage and unstage RPCs. New servers validate the whole selection and
+  update it as one batch operation; mobile falls back to sequential one-file requests on older
+  servers.
+- Streams batch pathspecs to Git instead of placing them in process arguments, so large folders and
+  unusual path names remain safe, and broadcasts lightweight change revisions so connected clients
+  refresh their shared Changes data without a full repository-status refresh.
 
 ## Mobile review notes and reliability
 
