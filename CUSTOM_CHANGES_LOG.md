@@ -1,10 +1,15 @@
 # Custom Changes Log
 
-This file tracks intentional changes carried by this fork. When syncing from `origin`, compare each
+This file tracks intentional changes carried by this fork. When syncing from `upstream`, compare each
 entry with upstream and keep only the behavior that upstream has not replaced.
 
-Upstream was last checked at `pingdotgg/t3code@9c7622dac` on 2026-08-11. It did not include the
+Upstream was last synced at `pingdotgg/t3code@1e59b4c40` on 2026-08-13. It did not include the
 mobile Changes workflow or its change-file, stage, and unstage RPCs.
+
+## Personal-team iOS builds
+
+- Allows contributor builds to use a personal Apple team, omits unsupported associated domains,
+  and disables updates from the official EAS project for those builds.
 
 ## Mobile Git Changes workflow
 
@@ -22,4 +27,4 @@ mobile Changes workflow or its change-file, stage, and unstage RPCs.
 - Reuses the review comment composer for line and range notes, including image attachments, and
   supports image attachments in the final global note sent to the thread.
 - Includes exact Git path and merge-conflict handling, bounded binary/large-file reads, stable diff
-  loading and navigation, and a development-build guard around unsupported Expo update checks.
+  loading, and stable navigation.
