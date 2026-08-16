@@ -10,6 +10,10 @@ mobile Changes workflow or its change-file, stage, and unstage RPCs.
 
 - Allows contributor builds to use a personal Apple team, omits unsupported associated domains,
   and disables updates from the official EAS project for those builds.
+- Adds `vp run dist:custom:release` to produce a local macOS DMG and provisioned Release IPA after
+  syncing the fork.
+- Adds the user-invoked `$sync-with-remote` project skill to audit and integrate upstream, reconcile
+  this log, run focused checks, and build both release artifacts.
 
 ## Mobile Git Changes workflow
 

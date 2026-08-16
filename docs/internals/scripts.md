@@ -66,6 +66,13 @@ authenticated.
 
 ## Desktop artifacts
 
+- `vp run dist:custom:release`: On macOS, builds the host-architecture DMG and a Release-config iOS
+  IPA into `./release`. The IPA defaults to Xcode's `debugging` export method, so it is installable
+  only on devices provisioned by the selected Apple team. Personal-team bundle and team settings
+  live in the repository-root `.env.local` as `T3CODE_IOS_PERSONAL_TEAM_BUNDLE_ID` and
+  `T3CODE_APPLE_TEAM_ID`. Set `T3CODE_RELEASE_VERSION` to override the latest reachable Nightly tag
+  used in artifact filenames, or `T3CODE_IOS_EXPORT_METHOD` when using a paid Apple distribution
+  profile.
 - `vp run dist:desktop:artifact --platform <mac|linux|win> --target <target> --arch <arch>`: Builds a desktop artifact for a specific platform/target/arch.
 - `vp run dist:desktop:dmg`: Builds a shareable macOS `.dmg` into `./release`. Architecture defaults
   to the host, so this produces an arm64 DMG on Apple Silicon. Use `dist:desktop:dmg:arm64` or

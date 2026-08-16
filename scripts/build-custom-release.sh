@@ -1,0 +1,114 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+release_dir="$repo_root/release"
+rust_toolchain="${RUSTUP_TOOLCHAIN:-1.95.0}"
+ios_export_method="${T3CODE_IOS_EXPORT_METHOD:-debugging}"
+
+if [[ "$(uname -s)" != "Darwin" ]]; then
+  echo "This release builder requires macOS." >&2
+  exit 1
+fi
+
+case "$(uname -m)" in
+  arm64) desktop_arch="arm64" ;;
+  x86_64) desktop_arch="x64" ;;
+  *)
+    echo "Unsupported macOS architecture: $(uname -m)" >&2
+    exit 1
+    ;;
+esac
+
+for command_name in git plutil shasum vp xcodebuild; do
+  if ! command -v "$command_name" >/dev/null 2>&1; then
+    echo "Missing required command: $command_name" >&2
+    exit 1
+  fi
+done
+
+release_version="${T3CODE_RELEASE_VERSION:-${T3CODE_DESKTOP_VERSION:-}}"
+if [[ -z "$release_version" ]]; then
+  release_version="$(git -C "$repo_root" describe --tags --match 'v*-nightly.*' --abbrev=0 HEAD 2>/dev/null || true)"
+  release_version="${release_version#v}"
+fi
+if [[ -z "$release_version" ]]; then
+  release_version="0.0.0-local.$(date -u +%Y%m%d%H%M%S)"
+fi
+
+mkdir -p "$release_dir"
+staging_dir="$(mktemp -d -t t3code-release)"
+trap 'rm -rf -- "$staging_dir"' EXIT
+
+export APP_VARIANT=production
+export EXPO_NO_GIT_STATUS=1
+export T3CODE_IOS_PERSONAL_TEAM="${T3CODE_IOS_PERSONAL_TEAM:-1}"
+
+# Resolve and validate the Expo configuration before starting either expensive build.
+expo_config="$staging_dir/expo-config.json"
+vp exec --filter @t3tools/mobile -- expo config --json >"$expo_config"
+apple_team_id="${T3CODE_APPLE_TEAM_ID:-$(plutil -extract ios.appleTeamId raw -o - "$expo_config" 2>/dev/null || true)}"
+if [[ -z "$apple_team_id" ]]; then
+  echo "Set T3CODE_APPLE_TEAM_ID in .env.local or the command environment." >&2
+  exit 1
+fi
+export T3CODE_APPLE_TEAM_ID="$apple_team_id"
+
+echo "Building macOS DMG ($desktop_arch, $release_version)..."
+RUSTUP_TOOLCHAIN="$rust_toolchain" \
+  T3CODE_DESKTOP_VERSION="$release_version" \
+  vp run "dist:desktop:dmg:$desktop_arch"
+
+echo "Generating the iOS project..."
+vp exec --filter @t3tools/mobile -- expo prebuild --clean --platform ios
+
+archive_path="$staging_dir/T3Code.xcarchive"
+export_dir="$staging_dir/export"
+export_options="$staging_dir/ExportOptions.plist"
+derived_data="$staging_dir/DerivedData"
+
+plutil -create xml1 "$export_options"
+plutil -insert destination -string export "$export_options"
+plutil -insert method -string "$ios_export_method" "$export_options"
+plutil -insert signingStyle -string automatic "$export_options"
+plutil -insert teamID -string "$apple_team_id" "$export_options"
+
+echo "Archiving the Release iOS app..."
+xcodebuild \
+  -workspace "$repo_root/apps/mobile/ios/T3Code.xcworkspace" \
+  -scheme T3Code \
+  -configuration Release \
+  -destination "generic/platform=iOS" \
+  -archivePath "$archive_path" \
+  -derivedDataPath "$derived_data" \
+  -allowProvisioningUpdates \
+  -hideShellScriptEnvironment \
+  -quiet \
+  CODE_SIGN_STYLE=Automatic \
+  DEVELOPMENT_TEAM="$apple_team_id" \
+  COMPILER_INDEX_STORE_ENABLE=NO \
+  archive
+
+echo "Exporting IPA ($ios_export_method)..."
+xcodebuild \
+  -exportArchive \
+  -archivePath "$archive_path" \
+  -exportPath "$export_dir" \
+  -exportOptionsPlist "$export_options" \
+  -allowProvisioningUpdates \
+  -quiet
+
+shopt -s nullglob
+exported_ipas=("$export_dir"/*.ipa)
+if [[ ${#exported_ipas[@]} -ne 1 ]]; then
+  echo "Expected one exported IPA, found ${#exported_ipas[@]}." >&2
+  exit 1
+fi
+
+ipa_path="$release_dir/T3-Code-${release_version}-ios.ipa"
+cp "${exported_ipas[0]}" "$ipa_path"
+dmg_path="$release_dir/T3-Code-${release_version}-${desktop_arch}.dmg"
+
+echo "Release artifacts:"
+shasum -a 256 "$dmg_path" "$ipa_path"
