@@ -2,6 +2,7 @@ import { Pressable, View } from "react-native";
 
 import { AppText as Text } from "../../components/AppText";
 import { SymbolView } from "../../components/AppSymbol";
+import { useThemeColor } from "../../lib/useThemeColor";
 
 export function ReviewSelectionActionBar(props: {
   readonly bottomInset: number;
@@ -9,6 +10,7 @@ export function ReviewSelectionActionBar(props: {
   readonly onOpenComment: (() => void) | null;
   readonly onClear: () => void;
 }) {
+  const foreground = useThemeColor("--color-primary-foreground");
   if (!props.title) return null;
 
   const content = (
@@ -16,10 +18,10 @@ export function ReviewSelectionActionBar(props: {
       <SymbolView
         name={props.onOpenComment ? "text.bubble" : "line.3.horizontal.decrease.circle"}
         size={16}
-        tintColor="#ffffff"
+        tintColor={foreground}
         type="monochrome"
       />
-      <Text className="text-base font-t3-bold text-white">{props.title}</Text>
+      <Text className="text-base font-t3-bold text-primary-foreground">{props.title}</Text>
     </>
   );
 
@@ -38,22 +40,22 @@ export function ReviewSelectionActionBar(props: {
     >
       {props.onOpenComment ? (
         <Pressable
-          className="h-12 flex-1 flex-row items-center justify-center gap-2 rounded-full bg-blue-600 px-5"
+          className="h-12 flex-1 flex-row items-center justify-center gap-2 rounded-full bg-primary px-5"
           onPress={props.onOpenComment}
         >
           {content}
         </Pressable>
       ) : (
-        <View className="h-12 flex-1 flex-row items-center justify-center gap-2 rounded-full bg-blue-600 px-5">
+        <View className="h-12 flex-1 flex-row items-center justify-center gap-2 rounded-full bg-primary px-5">
           {content}
         </View>
       )}
       <Pressable
         accessibilityLabel="Clear line selection"
-        className="h-12 w-12 items-center justify-center rounded-full bg-blue-600"
+        className="h-12 w-12 items-center justify-center rounded-full bg-primary"
         onPress={props.onClear}
       >
-        <SymbolView name="xmark" size={16} tintColor="#ffffff" type="monochrome" />
+        <SymbolView name="xmark" size={16} tintColor={foreground} type="monochrome" />
       </Pressable>
     </View>
   );

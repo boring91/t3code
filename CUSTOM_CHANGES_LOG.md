@@ -3,7 +3,7 @@
 This file tracks intentional changes carried by this fork. When syncing from `upstream`, compare each
 entry with upstream and keep only the behavior that upstream has not replaced.
 
-Upstream was last synced at `pingdotgg/t3code@038560e58` on 2026-08-14. It did not include the
+Upstream was last synced at `pingdotgg/t3code@30be31195` on 2026-08-23. It still does not include the
 mobile Changes workflow or its change-file, stage, and unstage RPCs.
 
 ## Personal-team iOS builds

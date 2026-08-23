@@ -26,7 +26,6 @@ import {
   ScrollView,
   type NativeSyntheticEvent,
   StyleSheet,
-  useColorScheme,
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -41,6 +40,7 @@ import { useThemeColor } from "../../lib/useThemeColor";
 import { IOS_NAV_BAR_HEIGHT } from "../../lib/layoutMetrics";
 import { useThreadDraftForThread } from "../../state/use-thread-composer-state";
 import { EnvironmentConnectionNotice } from "../connection/EnvironmentConnectionNotice";
+import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
 import {
   useAdaptiveWorkspaceLayout,
   useAdaptiveWorkspacePaneRole,
@@ -73,7 +73,7 @@ import { resolveSelectedReviewFileId } from "./reviewPaneSelection";
 import { buildReviewSectionMenu } from "./review-section-menu";
 import type { ReviewSectionItem } from "./reviewModel";
 import { ReviewSelectionActionBar } from "./ReviewSelectionActionBar";
-import { markNativeShowcaseReady } from "../showcase/nativeShowcaseScene";
+import { reportShowcaseSceneRendered } from "../showcase/showcaseRenderSignal";
 
 const REVIEW_HEADER_SPACING = 0;
 const SHOWCASE_ENABLED = process.env.EXPO_PUBLIC_SHOWCASE === "1";
@@ -288,7 +288,7 @@ export function ReviewSheet(props: ReviewSheetProps) {
   const { panes, showAuxiliaryPane, toggleAuxiliaryPane } = useAdaptiveWorkspaceLayout();
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
-  const colorScheme = useColorScheme();
+  const { themeAppearance: selectedTheme } = useAppearancePreferences();
   const headerIcon = String(useThemeColor("--color-icon"));
   const { environmentId, threadId } = props.route.params;
   const environment = useEnvironmentPresentation(environmentId);
@@ -313,7 +313,6 @@ export function ReviewSheet(props: ReviewSheetProps) {
   // selected thread (it always does when reached from the thread's toolbar).
   const gitMenuAvailable =
     selectedThread !== null && String(selectedThread.id) === String(threadId);
-  const selectedTheme = colorScheme === "dark" ? "dark" : "light";
   // With a solid (non-overlay) header the content lays out below the header
   // natively, so no manual top inset is needed. (Android renders its own
   // in-flow AndroidScreenHeader, so it needs no inset either.)
@@ -378,7 +377,6 @@ export function ReviewSheet(props: ReviewSheetProps) {
     sectionId: selectedSection?.id ?? null,
     diff: selectedSection?.diff,
     data: nativeReviewDiffData,
-    scheme: selectedTheme,
     collapsedFileIds,
     viewedFileIds,
     selectedRowIds: commentSelection.selectedRowIds,
@@ -386,7 +384,7 @@ export function ReviewSheet(props: ReviewSheetProps) {
   });
   const showcaseReviewKey =
     SHOWCASE_ENABLED && parsedDiff.kind === "files" && selectedSection
-      ? `${reviewCache.threadKey}:${selectedSection.id}:${nativeBridge.tokensResetKey}`
+      ? `${reviewCache.threadKey}:${selectedSection.id}:${nativeBridge.tokensResetKey}:${nativeBridge.themeId}`
       : null;
   const handleNativeDebug = useCallback(
     (event: NativeSyntheticEvent<Record<string, unknown>>) => {
@@ -399,9 +397,9 @@ export function ReviewSheet(props: ReviewSheetProps) {
         return;
       }
       showcasedReviewDrawRef.current = showcaseReviewKey;
-      markNativeShowcaseReady("review");
+      reportShowcaseSceneRendered({ scene: "review", themeId: nativeBridge.themeId });
     },
-    [nativeBridge.onDebug, showcaseReviewKey],
+    [nativeBridge.onDebug, nativeBridge.themeId, showcaseReviewKey],
   );
 
   const handleSelectFile = useCallback(

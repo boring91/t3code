@@ -16,7 +16,6 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
-  useColorScheme,
   View,
   type NativeSyntheticEvent,
 } from "react-native";
@@ -50,6 +49,7 @@ import {
 import { buildReviewParsedDiff, type ReviewRenderableLineRow } from "../review/reviewModel";
 import { ReviewSelectionActionBar } from "../review/ReviewSelectionActionBar";
 import { useNativeReviewDiffBridge } from "../review/useNativeReviewDiffBridge";
+import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
 import { useAppearanceCodeSurface } from "../settings/appearance/useAppearanceCodeSurface";
 import {
   changesCommentRebindTargets,
@@ -130,7 +130,7 @@ export function ChangesFileScreen(props: ChangesFileScreenProps) {
     props.route.params;
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
-  const colorScheme = useColorScheme();
+  const { themeAppearance: selectedTheme } = useAppearancePreferences();
   const iconColor = useThemeColor("--color-icon");
   const { nativeReviewDiffStyle } = useAppearanceCodeSurface();
   const { selectedThreadCwd } = useSelectedThreadWorktree();
@@ -296,7 +296,6 @@ export function ChangesFileScreen(props: ChangesFileScreenProps) {
     sectionId: contentKey,
     diff: patch,
     data: nativeData,
-    scheme: colorScheme === "dark" ? "dark" : "light",
     collapsedFileIds: [],
     viewedFileIds: [],
     selectedRowIds,
@@ -656,7 +655,7 @@ export function ChangesFileScreen(props: ChangesFileScreenProps) {
             refreshing={refreshing}
             onPullToRefresh={() => void refreshFile()}
             style={StyleSheet.absoluteFill}
-            appearanceScheme={colorScheme === "dark" ? "dark" : "light"}
+            appearanceScheme={selectedTheme}
             collapsedFileIdsJson={nativeBridge.collapsedFileIdsJson}
             collapsedCommentIdsJson={nativeBridge.collapsedCommentIdsJson}
             contentResetKey={contentKey}
