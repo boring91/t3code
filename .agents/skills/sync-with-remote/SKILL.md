@@ -75,10 +75,17 @@ provisioned by the selected Apple team, not an App Store upload. Honor
 
 ## 5. Report the outcome
 
-Lead with whether the sync and both builds succeeded. Include:
+Lead with whether the sync and both builds succeeded. Then summarize the upstream changes from
+the exact audit range used in step 2. Group user-visible work under short, impact-based headings
+such as main features, mobile, reliability, and performance or packaging. Translate commit
+subjects into plain descriptions of what changed; omit routine chores, tests, and dependency bumps
+unless they materially affect the user. Call out which documented custom features upstream still
+does not replace.
+
+Also include:
 
 - the previous local `HEAD` and integrated upstream commit;
-- incoming features and how overlapping custom behavior was handled;
+- how overlapping custom behavior was handled;
 - conflicts resolved and focused checks run;
 - clickable absolute paths and SHA-256 checksums for the DMG and IPA;
 - final `git status` and whether anything remains uncommitted;
