@@ -26,7 +26,7 @@ import { AppText as Text } from "../../components/AppText";
 import { SymbolView } from "../../components/AppSymbol";
 import { ControlPill, ControlPillMenu } from "../../components/ControlPill";
 import { GlassSurface } from "../../components/GlassSurface";
-import { useThemeColor } from "../../lib/useThemeColor";
+import { useUniwindTheme } from "../../lib/useUniwindTheme";
 import { NativeHeaderToolbar } from "../../native/StackHeader";
 import { useEnvironmentQuery } from "../../state/query";
 import { useAtomCommand } from "../../state/use-atom-command";
@@ -96,7 +96,7 @@ function FileNavigationButton(props: {
   readonly icon: "chevron.left" | "chevron.right";
   readonly onPress: () => void;
 }) {
-  const iconColor = useThemeColor("--color-icon");
+  const iconColor = String(useUniwindTheme()["--color-icon"]);
   if (Platform.OS !== "ios") return <ControlPill {...props} />;
 
   return (
@@ -131,7 +131,7 @@ export function ChangesFileScreen(props: ChangesFileScreenProps) {
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
   const { themeAppearance: selectedTheme } = useAppearancePreferences();
-  const iconColor = useThemeColor("--color-icon");
+  const iconColor = String(useUniwindTheme()["--color-icon"]);
   const { nativeReviewDiffStyle } = useAppearanceCodeSurface();
   const { selectedThreadCwd } = useSelectedThreadWorktree();
   const cwd = selectedThreadCwd;

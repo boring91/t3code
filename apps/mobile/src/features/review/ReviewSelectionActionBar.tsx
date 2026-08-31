@@ -2,7 +2,6 @@ import { Pressable, View } from "react-native";
 
 import { AppText as Text } from "../../components/AppText";
 import { SymbolView } from "../../components/AppSymbol";
-import { useThemeColor } from "../../lib/useThemeColor";
 
 export function ReviewSelectionActionBar(props: {
   readonly bottomInset: number;
@@ -10,7 +9,6 @@ export function ReviewSelectionActionBar(props: {
   readonly onOpenComment: (() => void) | null;
   readonly onClear: () => void;
 }) {
-  const foreground = useThemeColor("--color-primary-foreground");
   if (!props.title) return null;
 
   const content = (
@@ -18,7 +16,7 @@ export function ReviewSelectionActionBar(props: {
       <SymbolView
         name={props.onOpenComment ? "text.bubble" : "line.3.horizontal.decrease.circle"}
         size={16}
-        tintColor={foreground}
+        tintColorClassName={"accent-primary-foreground"}
         type="monochrome"
       />
       <Text className="text-base font-t3-bold text-primary-foreground">{props.title}</Text>
@@ -55,7 +53,12 @@ export function ReviewSelectionActionBar(props: {
         className="h-12 w-12 items-center justify-center rounded-full bg-primary"
         onPress={props.onClear}
       >
-        <SymbolView name="xmark" size={16} tintColor={foreground} type="monochrome" />
+        <SymbolView
+          name="xmark"
+          size={16}
+          tintColorClassName={"accent-primary-foreground"}
+          type="monochrome"
+        />
       </Pressable>
     </View>
   );

@@ -13,7 +13,6 @@ import { cn } from "../../lib/cn";
 import type { DraftComposerImageAttachment } from "../../lib/composerImages";
 import { convertPastedImagesToAttachments, pickComposerImages } from "../../lib/composerImages";
 import { useNativePaste } from "../../lib/useNativePaste";
-import { useThemeColor } from "../../lib/useThemeColor";
 import { setPendingConnectionError } from "../../state/use-remote-environment-registry";
 import { useAppearancePreferences } from "../settings/appearance/AppearancePreferencesProvider";
 import { useAppearanceCodeSurface } from "../settings/appearance/useAppearanceCodeSurface";
@@ -51,7 +50,6 @@ export function ReviewCommentComposer(props: {
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const { themeAppearance: selectedTheme } = useAppearancePreferences();
-  const iconTint = String(useThemeColor("--color-icon"));
   const { codeSurface } = useAppearanceCodeSurface();
   const [commentText, setCommentText] = useState(props.initialText ?? "");
   const [attachments, setAttachments] = useState<ReadonlyArray<DraftComposerImageAttachment>>(
@@ -133,7 +131,12 @@ export function ReviewCommentComposer(props: {
               className="h-12 w-12 items-center justify-center rounded-full bg-subtle"
               onPress={props.onDismiss}
             >
-              <SymbolView name="xmark" size={18} tintColor={iconTint} type="monochrome" />
+              <SymbolView
+                name="xmark"
+                size={18}
+                tintColorClassName={"accent-icon"}
+                type="monochrome"
+              />
             </Pressable>
             <Text className="text-lg font-t3-bold text-foreground">
               {props.title ?? "Add Comment"}

@@ -12,7 +12,7 @@ import { SymbolView } from "../../components/AppSymbol";
 import { ComposerAttachmentStrip } from "../../components/ComposerAttachmentStrip";
 import { ControlPill, ControlPillMenu } from "../../components/ControlPill";
 import { convertPastedImagesToAttachments, pickComposerImages } from "../../lib/composerImages";
-import { useThemeColor } from "../../lib/useThemeColor";
+import { useUniwindTheme } from "../../lib/useUniwindTheme";
 import { useNativePaste } from "../../lib/useNativePaste";
 import { makeQueuedMessageMetadata } from "../../lib/commandMetadata";
 import { useEnvironmentQuery } from "../../state/query";
@@ -43,7 +43,7 @@ export function ChangesNotesScreen(props: ChangesNotesScreenProps) {
   const { environmentId, threadId } = props.route.params;
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
-  const iconColor = useThemeColor("--color-icon");
+  const iconColor = String(useUniwindTheme()["--color-icon"]);
   const { selectedThread } = useThreadSelection();
   const { selectedThreadCwd } = useSelectedThreadWorktree();
   const cwd = selectedThreadCwd;
