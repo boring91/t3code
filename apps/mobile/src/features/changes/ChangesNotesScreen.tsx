@@ -4,15 +4,14 @@ import { TextInputWrapper } from "expo-paste-input";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Alert, Platform, Pressable, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import ImageViewing from "react-native-image-viewing";
 
 import { AndroidScreenHeader } from "../../components/AndroidScreenHeader";
 import { AppText as Text, AppTextInput as TextInput } from "../../components/AppText";
 import { SymbolView } from "../../components/AppSymbol";
 import { ComposerAttachmentStrip } from "../../components/ComposerAttachmentStrip";
 import { ControlPill, ControlPillMenu } from "../../components/ControlPill";
+import { FilePreviewModal, type FilePreviewSource } from "../../components/FilePreviewModal";
 import { convertPastedImagesToAttachments, pickComposerImages } from "../../lib/composerImages";
-import { useUniwindTheme } from "../../lib/useUniwindTheme";
 import { useNativePaste } from "../../lib/useNativePaste";
 import { makeQueuedMessageMetadata } from "../../lib/commandMetadata";
 import { useEnvironmentQuery } from "../../state/query";
@@ -43,7 +42,6 @@ export function ChangesNotesScreen(props: ChangesNotesScreenProps) {
   const { environmentId, threadId } = props.route.params;
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
-  const iconColor = String(useUniwindTheme()["--color-icon"]);
   const { selectedThread } = useThreadSelection();
   const { selectedThreadCwd } = useSelectedThreadWorktree();
   const cwd = selectedThreadCwd;
@@ -54,7 +52,7 @@ export function ChangesNotesScreen(props: ChangesNotesScreenProps) {
   );
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
-  const [previewImageUri, setPreviewImageUri] = useState<string | null>(null);
+  const [previewFile, setPreviewFile] = useState<FilePreviewSource | null>(null);
   const allChanges = useMemo(
     () => [...(changes.data?.unstaged ?? []), ...(changes.data?.staged ?? [])],
     [changes.data],
@@ -109,11 +107,11 @@ export function ChangesNotesScreen(props: ChangesNotesScreenProps) {
         }}
       >
         <Pressable accessibilityLabel="Notes actions" hitSlop={8}>
-          <SymbolView name="ellipsis.circle" size={22} tintColor={iconColor} />
+          <SymbolView name="ellipsis.circle" size={22} tintColorClassName="accent-icon" />
         </Pressable>
       </ControlPillMenu>
     ),
-    [discardAll, iconColor],
+    [discardAll],
   );
 
   useEffect(() => {
@@ -236,7 +234,7 @@ export function ChangesNotesScreen(props: ChangesNotesScreenProps) {
                       attachments={comment.attachments}
                       imageBorderRadius={14}
                       imageSize={56}
-                      onPressImage={setPreviewImageUri}
+                      onPressPreview={setPreviewFile}
                     />
                   ) : null}
                 </View>
@@ -265,7 +263,7 @@ export function ChangesNotesScreen(props: ChangesNotesScreenProps) {
                   attachments={draft.globalAttachments}
                   imageBorderRadius={16}
                   imageSize={60}
-                  onPressImage={setPreviewImageUri}
+                  onPressPreview={setPreviewFile}
                   removeButtonPlacement="gutter"
                   onRemove={(imageId) =>
                     setChangesGlobalAttachments(
@@ -301,14 +299,7 @@ export function ChangesNotesScreen(props: ChangesNotesScreenProps) {
           </Text>
         </Pressable>
       </View>
-      <ImageViewing
-        images={previewImageUri ? [{ uri: previewImageUri }] : []}
-        imageIndex={0}
-        visible={previewImageUri !== null}
-        onRequestClose={() => setPreviewImageUri(null)}
-        swipeToCloseEnabled
-        doubleTapToZoomEnabled
-      />
+      <FilePreviewModal source={previewFile} onRequestClose={() => setPreviewFile(null)} />
     </View>
   );
 }
