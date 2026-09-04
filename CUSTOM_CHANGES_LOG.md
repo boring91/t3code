@@ -3,15 +3,13 @@
 This file tracks intentional changes carried by this fork. When syncing from `upstream`, compare each
 entry with upstream and keep only the behavior that upstream has not replaced.
 
-Upstream was last synced at `pingdotgg/t3code@b21d87243` on 2026-09-02. It still does not include the
+Upstream was last synced at `pingdotgg/t3code@caab2fdba` on 2026-09-04. It still does not include the
 mobile Changes workflow or its change-file, stage, and unstage RPCs.
 
-## Personal-team iOS builds
+## Custom release workflow
 
-- Allows contributor builds to use a personal Apple team, omits unsupported associated domains,
-  and disables updates from the official EAS project for those builds.
 - Adds `vp run dist:custom:release` to produce a local macOS DMG and provisioned Release IPA after
-  syncing the fork.
+  syncing the fork. Upstream supplies the personal-team iOS configuration used by this command.
 - Adds the user-invoked `$sync-with-remote` project skill to audit and integrate upstream, reconcile
   this log, run focused checks, and build both release artifacts.
 
