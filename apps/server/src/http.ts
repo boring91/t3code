@@ -237,7 +237,7 @@ export const browserApiCorsLayer = Layer.unwrap(
     // origin — a tailnet name, a LAN IP, a phone. Browser dev normally proxies
     // through Vite and is same-origin (no preflight at all), so this is a
     // safety net for the desktop renderer and any direct-to-backend caller.
-    return HttpRouter.cors({
+    const options = {
       ...(devOrigin
         ? {
             allowedOrigins: [devOrigin, ...DESKTOP_RENDERER_ORIGINS, ...config.devAllowedOrigins],
@@ -247,7 +247,19 @@ export const browserApiCorsLayer = Layer.unwrap(
       allowedMethods: browserApiCorsAllowedMethods,
       allowedHeaders: browserApiCorsAllowedHeaders,
       maxAge: 600,
-    });
+    };
+    if (devOrigin) return HttpRouter.cors(options);
+
+    // Bun currently skips the pre-response hook used by Effect's CORS middleware.
+    // Set the production wildcard on the returned response as well so remote web clients can pair.
+    const cors = HttpMiddleware.cors(options);
+    return HttpRouter.middleware(
+      (httpEffect) =>
+        cors(httpEffect).pipe(
+          Effect.map(HttpServerResponse.setHeader("access-control-allow-origin", "*")),
+        ),
+      { global: true },
+    );
   }),
 );
 

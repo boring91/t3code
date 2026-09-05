@@ -1,7 +1,7 @@
 interface:
   display_name: "Sync With Remote"
-  short_description: "Sync upstream and build both releases"
-  default_prompt: "Use $sync-with-remote to sync this fork with upstream and build the DMG and Release IPA."
+  short_description: "Sync, release, deploy, and push the fork"
+  default_prompt: "Use $sync-with-remote to sync this fork, build and deploy all release artifacts, then push the validated branch to my fork."
 
 policy:
   allow_implicit_invocation: false

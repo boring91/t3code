@@ -8,10 +8,15 @@ mobile Changes workflow or its change-file, stage, and unstage RPCs.
 
 ## Custom release workflow
 
-- Adds `vp run dist:custom:release` to produce a local macOS DMG and provisioned Release IPA after
-  syncing the fork. Upstream supplies the personal-team iOS configuration used by this command.
+- Adds `vp run dist:custom:release` to produce a local macOS DMG, provisioned Release IPA, and
+  installable custom `t3` server package after syncing the fork. Upstream supplies the personal-team
+  iOS configuration used by this command.
 - Adds the user-invoked `$sync-with-remote` project skill to audit and integrate upstream, reconcile
-  this log, run focused checks, and build both release artifacts.
+  this log, run focused checks, build all release artifacts, and deploy the custom headless server
+  to the configured Tailscale host. After validation and deployment succeed, it pushes the current
+  branch to the configured fork remote.
+- Keeps production CORS headers on normal Bun server responses so desktop and web clients can pair
+  with the deployed headless server.
 
 ## Mobile Git Changes workflow
 

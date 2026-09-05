@@ -21,7 +21,7 @@ case "$(uname -m)" in
     ;;
 esac
 
-for command_name in git plutil shasum vp xcodebuild; do
+for command_name in git npm plutil shasum tar vp xcodebuild; do
   if ! command -v "$command_name" >/dev/null 2>&1; then
     echo "Missing required command: $command_name" >&2
     exit 1
@@ -109,6 +109,34 @@ fi
 ipa_path="$release_dir/T3-Code-${release_version}-ios.ipa"
 cp "${exported_ipas[0]}" "$ipa_path"
 dmg_path="$release_dir/T3-Code-${release_version}-${desktop_arch}.dmg"
+server_package_path="$release_dir/T3-Code-${release_version}-server.tgz"
+
+echo "Packaging the standalone server..."
+node "$repo_root/apps/server/scripts/cli.ts" build \
+  --app-version "$release_version" \
+  --verbose
+official_server_package="$(
+  npm pack "t3@$release_version" --pack-destination "$staging_dir" --silent 2>/dev/null || true
+)"
+if [[ -n "$official_server_package" && -f "$staging_dir/$official_server_package" ]]; then
+  official_server_dir="$staging_dir/official-server"
+  mkdir -p "$official_server_dir"
+  tar -xzf "$staging_dir/$official_server_package" -C "$official_server_dir"
+  if [[ -d "$official_server_dir/package/dist/resource-monitor" ]]; then
+    mkdir -p "$repo_root/apps/server/dist/resource-monitor"
+    cp -R "$official_server_dir/package/dist/resource-monitor/." \
+      "$repo_root/apps/server/dist/resource-monitor/"
+  else
+    echo "Warning: the matching upstream package has no resource monitors." >&2
+  fi
+else
+  echo "Warning: could not fetch matching upstream resource monitors." >&2
+fi
+rm -f -- "$server_package_path"
+node "$repo_root/apps/server/scripts/cli.ts" pack \
+  --app-version "$release_version" \
+  --out "$server_package_path" \
+  --verbose
 
 echo "Release artifacts:"
-shasum -a 256 "$dmg_path" "$ipa_path"
+shasum -a 256 "$dmg_path" "$ipa_path" "$server_package_path"
