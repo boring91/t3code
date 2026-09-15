@@ -139,7 +139,11 @@ else
   echo "Warning: could not fetch matching upstream resource monitors." >&2
 fi
 rm -f -- "$server_package_path"
-VP_NODE_VERSION=26.8.2 vp exec node "$repo_root/apps/server/scripts/cli.ts" build-exe \
+vp_cli="${VP_CLI_BIN:-$(command -v vp)}"
+sea_node="$("$vp_cli" env exec --node 26.8.2 node -p 'process.execPath')"
+PATH="$repo_root/node_modules/.bin:$(dirname "$sea_node"):$PATH" \
+  VP_NODE_VERSION=26.8.2 \
+  "$sea_node" "$repo_root/apps/server/scripts/cli.ts" build-exe \
   --app-version "$release_version" \
   --target linux-x64 \
   --verbose
