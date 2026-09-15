@@ -6,6 +6,7 @@ import { useEffect } from "react";
 
 import { SerializedAsyncQueue } from "../../lib/serialized-async-queue";
 import { DraftComposerImageAttachmentSchema } from "../../lib/composer-image-schema";
+import { composerImageAttachmentDataUrl } from "../../lib/composerAttachmentFiles";
 import type { DraftComposerImageAttachment } from "../../lib/composerImages";
 import { appAtomRegistry } from "../../state/atom-registry";
 
@@ -412,7 +413,7 @@ async function writePersisted(drafts: Record<string, ChangesDraft>) {
     const file = new File(directory, attachmentFileName(attachment.id));
     if (!file.exists) {
       file.create({ intermediates: true, overwrite: true });
-      file.write(attachment.dataUrl);
+      file.write(await composerImageAttachmentDataUrl(attachment));
     }
   }
   const file = await draftsFile();

@@ -1,3 +1,5 @@
+import type { DraftComposerImageAttachment } from "./composerImages";
+
 export const COMPOSER_ATTACHMENT_DIRECTORY = "t3-composer-attachments";
 
 const UUID_PATTERN = "[a-f\\d]{8}-[a-f\\d]{4}-[a-f\\d]{4}-[a-f\\d]{4}-[a-f\\d]{12}";
@@ -104,4 +106,22 @@ export function resolveOwnedComposerAttachmentFileUri(
   const resolved = new URL(documentDirectoryUri);
   resolved.pathname = `${resolved.pathname.replace(/\/+$/, "")}/${COMPOSER_ATTACHMENT_DIRECTORY}/${encodeURIComponent(location.name)}`;
   return resolved.href;
+}
+
+/** Reads inline image bytes, resolving file-backed drafts across iOS container moves. */
+export async function composerImageAttachmentDataUrl(
+  attachment: DraftComposerImageAttachment,
+): Promise<string> {
+  if (attachment.dataUrl !== undefined) {
+    return attachment.dataUrl;
+  }
+  if (attachment.fileUri === undefined) {
+    throw new Error(`'${attachment.name}' is no longer available. Attach the image again.`);
+  }
+  const { File, Paths } = await import("expo-file-system");
+  const uri =
+    resolveOwnedComposerAttachmentFileUri(attachment.fileUri, Paths.document.uri) ??
+    attachment.fileUri;
+  const base64 = await new File(uri).base64();
+  return `data:${attachment.mimeType};base64,${base64}`;
 }

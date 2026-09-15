@@ -15,6 +15,7 @@ import {
   resolveWebAssetBrandForPackageVersion,
   resolveWebIconOverrides,
 } from "../../../scripts/lib/brand-assets.ts";
+import { findEsmImportsOfExternalPackages } from "../../../scripts/lib/cli-external-packages.ts";
 import { resolveCatalogDependencies } from "../../../scripts/lib/resolve-catalog.ts";
 import { fromJsonStringPretty } from "@t3tools/shared/schemaJson";
 import { fromYaml } from "@t3tools/shared/schemaYaml";
@@ -25,6 +26,7 @@ import {
   ServerCliCommandExitError,
   ServerCliDevelopmentIconSourceMissingError,
   ServerCliDevelopmentIconTargetMissingError,
+  ServerCliExecutableImportError,
   ServerCliPublishIconSourceMissingError,
   ServerCliPublishIconTargetMissingError,
 } from "./cliErrors.ts";
@@ -45,14 +47,12 @@ interface PackageJson {
   overrides: Record<string, string>;
 }
 
-const PackageJsonPrettyJson = fromJsonStringPretty(Schema.Unknown);
-const encodePackageJson = Schema.encodeEffect(PackageJsonPrettyJson);
+const encodePackageJson = Schema.encodeEffect(fromJsonStringPretty(Schema.Unknown));
 
 const WorkspaceConfig = Schema.Struct({
   catalog: Schema.optional(Schema.Record(Schema.String, Schema.String)),
   overrides: Schema.optional(Schema.Record(Schema.String, Schema.String)),
 });
-type WorkspaceConfig = typeof WorkspaceConfig.Type;
 const decodeWorkspaceConfig = Schema.decodeEffect(fromYaml(WorkspaceConfig));
 
 const RepoRoot = Effect.service(Path.Path).pipe(
@@ -63,8 +63,9 @@ const readWorkspaceConfig = Effect.fn("readWorkspaceConfig")(function* () {
   const path = yield* Path.Path;
   const fs = yield* FileSystem.FileSystem;
   const repoRoot = yield* RepoRoot;
-  const workspaceYaml = yield* fs.readFileString(path.join(repoRoot, "pnpm-workspace.yaml"));
-  return yield* decodeWorkspaceConfig(workspaceYaml);
+  return yield* decodeWorkspaceConfig(
+    yield* fs.readFileString(path.join(repoRoot, "pnpm-workspace.yaml")),
+  );
 });
 
 const runCommand = Effect.fn("runCommand")(function* (command: ChildProcess.StandardCommand) {
@@ -210,37 +211,12 @@ const buildCmd = Command.make(
 // Package subcommands
 // ---------------------------------------------------------------------------
 
-interface PublishCommandConfig {
-  readonly access: string;
-  readonly tag: string;
-  readonly provenance: boolean;
-  readonly dryRun: boolean;
-}
-
 interface PreparedPackageCommandConfig {
   readonly args: ReadonlyArray<string>;
   readonly label: string;
   readonly verbose: boolean;
   readonly version: string;
 }
-
-const createVpPmPublishArgs = (config: PublishCommandConfig): ReadonlyArray<string> => {
-  const args = [
-    "publish",
-    "--filter",
-    "t3",
-    "--access",
-    config.access,
-    "--tag",
-    config.tag,
-    "--no-git-checks",
-  ];
-
-  if (config.provenance) args.push("--provenance");
-  if (config.dryRun) args.push("--dry-run");
-
-  return args;
-};
 
 const runPreparedPackageCommand = Effect.fn("runPreparedPackageCommand")(function* (
   config: PreparedPackageCommandConfig,
@@ -251,7 +227,7 @@ const runPreparedPackageCommand = Effect.fn("runPreparedPackageCommand")(functio
   const serverDir = path.join(repoRoot, "apps/server");
   const packageJsonPath = path.join(serverDir, "package.json");
 
-  for (const relPath of ["dist/bin.mjs", "dist/service-launcher.mjs", "dist/client/index.html"]) {
+  for (const relPath of ["dist/bin.mjs", "dist/client/index.html"]) {
     const abs = path.join(serverDir, relPath);
     if (!(yield* fs.exists(abs))) {
       return yield* new ServerCliBuildAssetMissingError({ assetPath: abs });
@@ -334,27 +310,133 @@ const packCmd = Command.make(
   },
 ).pipe(Command.withDescription("Pack the server package for local installation."));
 
+// build-exe subcommand
+// ---------------------------------------------------------------------------
+
+const buildExeCmd = Command.make(
+  "build-exe",
+  {
+    verbose: Flag.boolean("verbose").pipe(Flag.withDefault(false)),
+    target: Flag.string("target").pipe(
+      Flag.withDescription(
+        "Cross-build for <platform>-<arch> in nodejs.org naming (for example darwin-x64); defaults to the host.",
+      ),
+      Flag.optional,
+    ),
+  },
+  (config) =>
+    Effect.gen(function* () {
+      const path = yield* Path.Path;
+      const fs = yield* FileSystem.FileSystem;
+      const repoRoot = yield* RepoRoot;
+      const serverDir = path.join(repoRoot, "apps/server");
+
+      yield* Effect.log("[cli] Building single-executable...");
+      const spawnCommand = yield* resolveSpawnCommand("vp", ["pack"]);
+      yield* runCommand(
+        ChildProcess.make(spawnCommand.command, spawnCommand.args, {
+          cwd: serverDir,
+          env: {
+            ...process.env,
+            T3CODE_PACK_EXE: "1",
+            ...Option.match(config.target, {
+              onNone: () => ({}),
+              onSome: (target) => ({ T3CODE_PACK_EXE_TARGET: target }),
+            }),
+          },
+          stdout: config.verbose ? "inherit" : "ignore",
+          stderr: "inherit",
+          shell: spawnCommand.shell,
+        }),
+      );
+
+      // The executable can only `import` built-ins. A file-backed import
+      // passes the bundler and `node dist/bin.mjs`, then throws inside the
+      // binary, so read the emitted module graph rather than trusting config.
+      const bundlePath = path.join(serverDir, "dist-exe/bin.mjs");
+      const specifiers = findEsmImportsOfExternalPackages(yield* fs.readFileString(bundlePath));
+      if (specifiers.length > 0) {
+        return yield* new ServerCliExecutableImportError({ bundlePath, specifiers });
+      }
+      yield* Effect.log(
+        "[cli] Built dist-exe/t3 (expects client/, resource-monitor/, and the runtime-external node_modules beside it; scripts/build-cli-archive.ts assembles that tree)",
+      );
+    }),
+).pipe(
+  Command.withDescription(
+    "Build the server as a Node single-executable (needs a Node 25.7+ host for --build-sea). The binary still resolves native packages from a node_modules tree beside it.",
+  ),
+);
+
+// ---------------------------------------------------------------------------
+// publish subcommand
+// ---------------------------------------------------------------------------
+
+/**
+ * Publishes the tarballs scripts/build-npm-platform-packages.ts produced:
+ * every `@t3code/t3-<platform>.tgz` first, `t3.tgz` (the launcher) last, so
+ * the launcher is never installable before the executables it depends on.
+ * Tarballs rather than directories because `npm publish <dir>` strips the
+ * `node_modules/` the executable loads its native addons from.
+ */
 const publishCmd = Command.make(
   "publish",
   {
+    packagesDir: Flag.string("packages-dir").pipe(
+      Flag.withDescription("Output dir of scripts/build-npm-platform-packages.ts."),
+    ),
     tag: Flag.string("tag").pipe(Flag.withDefault("latest")),
     access: Flag.string("access").pipe(Flag.withDefault("public")),
-    appVersion: Flag.string("app-version").pipe(Flag.optional),
     provenance: Flag.boolean("provenance").pipe(Flag.withDefault(false)),
     dryRun: Flag.boolean("dry-run").pipe(Flag.withDefault(false)),
     verbose: Flag.boolean("verbose").pipe(Flag.withDefault(false)),
   },
-  (config) => {
-    const version = Option.getOrElse(config.appVersion, () => serverPackageJson.version);
-    const args = createVpPmPublishArgs(config);
-    return runPreparedPackageCommand({
-      args,
-      label: `vp pm ${args.join(" ")}`,
-      verbose: config.verbose,
-      version,
-    });
-  },
-).pipe(Command.withDescription("Publish the server package to npm."));
+  (config) =>
+    Effect.gen(function* () {
+      const path = yield* Path.Path;
+      const fs = yield* FileSystem.FileSystem;
+      // npm runs with cwd set to the packages dir below, so tarball paths are
+      // resolved once here rather than joined twice.
+      const packagesDir = path.resolve(config.packagesDir);
+      const scopeDir = path.join(packagesDir, "@t3code");
+      const launcherTarball = path.join(packagesDir, "t3.tgz");
+      const platformTarballs = (yield* fs
+        .readDirectory(scopeDir)
+        .pipe(Effect.orElseSucceed((): ReadonlyArray<string> => [])))
+        .filter((entry) => entry.startsWith("t3-") && entry.endsWith(".tgz"))
+        .sort()
+        .map((entry) => path.join(scopeDir, entry));
+      if (platformTarballs.length === 0) {
+        return yield* new ServerCliBuildAssetMissingError({
+          assetPath: path.join(scopeDir, "t3-<platform>.tgz"),
+        });
+      }
+      if (!(yield* fs.exists(launcherTarball))) {
+        return yield* new ServerCliBuildAssetMissingError({ assetPath: launcherTarball });
+      }
+
+      const args = ["publish", "--access", config.access, "--tag", config.tag];
+      if (config.provenance) args.push("--provenance");
+      if (config.dryRun) args.push("--dry-run");
+
+      for (const tarball of [...platformTarballs, launcherTarball]) {
+        const spawnCommand = yield* resolveSpawnCommand("npm", [...args, tarball]);
+        yield* Effect.log(`[cli] npm ${args.join(" ")} ${path.basename(tarball)}`);
+        yield* runCommand(
+          ChildProcess.make(spawnCommand.command, spawnCommand.args, {
+            cwd: packagesDir,
+            stdout: config.verbose ? "inherit" : "ignore",
+            stderr: "inherit",
+            shell: spawnCommand.shell,
+          }),
+        );
+      }
+    }),
+).pipe(
+  Command.withDescription(
+    "Publish the @t3code/t3-<platform> tarballs and then the t3 launcher to npm.",
+  ),
+);
 
 // ---------------------------------------------------------------------------
 // root command
@@ -362,7 +444,7 @@ const publishCmd = Command.make(
 
 const cli = Command.make("cli").pipe(
   Command.withDescription("T3 server build, pack, and publish CLI."),
-  Command.withSubcommands([buildCmd, packCmd, publishCmd]),
+  Command.withSubcommands([buildCmd, buildExeCmd, packCmd, publishCmd]),
 );
 
 Command.run(cli, { version: "0.0.0" }).pipe(

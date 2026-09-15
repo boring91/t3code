@@ -116,7 +116,9 @@ node "$repo_root/apps/server/scripts/cli.ts" build \
   --app-version "$release_version" \
   --verbose
 official_server_package="$(
-  npm pack "t3@$release_version" --pack-destination "$staging_dir" --silent 2>/dev/null || true
+  npm pack "@t3code/t3-linux-x64@$release_version" \
+    --pack-destination "$staging_dir" \
+    --silent 2>/dev/null || true
 )"
 if [[ -n "$official_server_package" && -f "$staging_dir/$official_server_package" ]]; then
   official_server_dir="$staging_dir/official-server"
@@ -127,7 +129,7 @@ if [[ -n "$official_server_package" && -f "$staging_dir/$official_server_package
     cp -R "$official_server_dir/package/dist/resource-monitor/." \
       "$repo_root/apps/server/dist/resource-monitor/"
   else
-    echo "Warning: the matching upstream package has no resource monitors." >&2
+    echo "Warning: the matching upstream platform package has no resource monitors." >&2
   fi
 else
   echo "Warning: could not fetch matching upstream resource monitors." >&2

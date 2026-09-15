@@ -30,7 +30,7 @@ export function GitCommitSheet(_props: GitCommitSheetProps) {
   const supportsChanges = serverConfig?.environment.capabilities.vcsChanges === true;
 
   const gitStatus = useEnvironmentQuery(
-    selectedThread !== null && selectedThreadCwd !== null && supportsChanges
+    selectedThread !== null && selectedThreadCwd !== null
       ? vcsEnvironment.status({
           environmentId: selectedThread.environmentId,
           input: { cwd: selectedThreadCwd },
@@ -38,7 +38,7 @@ export function GitCommitSheet(_props: GitCommitSheetProps) {
       : null,
   );
   const changes = useEnvironmentQuery(
-    selectedThread !== null && selectedThreadCwd !== null
+    selectedThread !== null && selectedThreadCwd !== null && supportsChanges
       ? vcsEnvironment.changes({
           environmentId: selectedThread.environmentId,
           input: { cwd: selectedThreadCwd },
@@ -54,8 +54,8 @@ export function GitCommitSheet(_props: GitCommitSheetProps) {
 
   useFocusEffect(
     useCallback(() => {
-      changes.refresh();
-    }, [changes.refresh]),
+      if (supportsChanges) changes.refresh();
+    }, [changes.refresh, supportsChanges]),
   );
 
   const [dialogCommitMessage, setDialogCommitMessage] = useState("");
@@ -99,7 +99,7 @@ export function GitCommitSheet(_props: GitCommitSheetProps) {
             </Text>
           </View>
           {isDefaultRef ? (
-            <Text className="text-xs leading-normal text-adaptive-amber-700-400">
+            <Text className="text-xs leading-normal text-warning-foreground">
               Warning: this is the default branch.
             </Text>
           ) : null}

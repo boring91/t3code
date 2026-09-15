@@ -3,7 +3,7 @@
 This file tracks intentional changes carried by this fork. When syncing from `upstream`, compare each
 entry with upstream and keep only the behavior that upstream has not replaced.
 
-Upstream was last synced at `pingdotgg/t3code@caab2fdba` on 2026-09-04. It still does not include the
+Upstream was last synced at `pingdotgg/t3code@a62e7d670` on 2026-09-15. It still does not include the
 mobile Changes workflow or its change-file, stage, and unstage RPCs.
 
 ## Custom release workflow
