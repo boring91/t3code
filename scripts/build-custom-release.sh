@@ -148,7 +148,7 @@ PATH="$repo_root/node_modules/.bin:$(dirname "$sea_node"):$PATH" \
   --target linux-x64 \
   --verbose
 server_archive_dir="$staging_dir/server-archive"
-node "$repo_root/scripts/build-cli-archive.ts" \
+COPYFILE_DISABLE=1 node "$repo_root/scripts/build-cli-archive.ts" \
   --platform linux \
   --arch x64 \
   --version "$release_version" \
