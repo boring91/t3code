@@ -124,9 +124,13 @@ if [[ -n "$official_server_package" && -f "$staging_dir/$official_server_package
   official_server_dir="$staging_dir/official-server"
   mkdir -p "$official_server_dir"
   tar -xzf "$staging_dir/$official_server_package" -C "$official_server_dir"
-  if [[ -d "$official_server_dir/package/dist/resource-monitor" ]]; then
+  official_resource_monitor_dir="$official_server_dir/package/resource-monitor"
+  if [[ ! -d "$official_resource_monitor_dir" ]]; then
+    official_resource_monitor_dir="$official_server_dir/package/dist/resource-monitor"
+  fi
+  if [[ -d "$official_resource_monitor_dir" ]]; then
     mkdir -p "$repo_root/apps/server/dist/resource-monitor"
-    cp -R "$official_server_dir/package/dist/resource-monitor/." \
+    cp -R "$official_resource_monitor_dir/." \
       "$repo_root/apps/server/dist/resource-monitor/"
   else
     echo "Warning: the matching upstream platform package has no resource monitors." >&2
