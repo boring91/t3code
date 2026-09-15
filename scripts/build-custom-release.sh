@@ -139,10 +139,23 @@ else
   echo "Warning: could not fetch matching upstream resource monitors." >&2
 fi
 rm -f -- "$server_package_path"
-node "$repo_root/apps/server/scripts/cli.ts" pack \
+VP_NODE_VERSION=26.8.2 node "$repo_root/apps/server/scripts/cli.ts" build-exe \
   --app-version "$release_version" \
-  --out "$server_package_path" \
+  --target linux-x64 \
   --verbose
+server_archive_dir="$staging_dir/server-archive"
+node "$repo_root/scripts/build-cli-archive.ts" \
+  --platform linux \
+  --arch x64 \
+  --version "$release_version" \
+  --resource-monitor-dir "$repo_root/apps/server/dist/resource-monitor" \
+  --output-dir "$server_archive_dir"
+server_archives=("$server_archive_dir"/*.tar.gz)
+if [[ ${#server_archives[@]} -ne 1 ]]; then
+  echo "Expected one server archive, found ${#server_archives[@]}." >&2
+  exit 1
+fi
+cp "${server_archives[0]}" "$server_package_path"
 
 echo "Release artifacts:"
 shasum -a 256 "$dmg_path" "$ipa_path" "$server_package_path"

@@ -9,8 +9,6 @@ fi
 
 package_path="$(cd -- "$(dirname -- "$1")" && pwd)/$(basename -- "$1")"
 remote_host="${T3CODE_REMOTE_HOST:-boring@100.108.40.121}"
-bun_version="${T3CODE_REMOTE_BUN_VERSION:-1.3.3}"
-node_version="${T3CODE_REMOTE_NODE_VERSION:-24.13.1}"
 service_name="t3code-custom.service"
 
 if [[ ! -f "$package_path" ]]; then
@@ -18,8 +16,13 @@ if [[ ! -f "$package_path" ]]; then
   exit 1
 fi
 
+manifest_path="$(tar -tzf "$package_path" | awk -F/ 'NF == 2 && $2 == "package.json" { print; exit }')"
+if [[ -z "$manifest_path" ]]; then
+  echo "Server archive has no root package manifest." >&2
+  exit 1
+fi
 package_version="$(
-  tar -xOf "$package_path" package/package.json |
+  tar -xOf "$package_path" "$manifest_path" |
     node -e 'let value=""; process.stdin.on("data", chunk => value += chunk); process.stdin.on("end", () => process.stdout.write(JSON.parse(value).version))'
 )"
 package_sha256="$(shasum -a 256 "$package_path" | awk '{print $1}')"
@@ -40,26 +43,15 @@ ssh -o BatchMode=yes "$remote_host" bash -s -- \
   "$remote_package" \
   "$package_sha256" \
   "$package_version" \
-  "$bun_version" \
-  "$node_version" \
   "$service_name" <<'REMOTE_SCRIPT'
 set -euo pipefail
 
 package_path="$HOME/$1"
 expected_sha256="$2"
 package_version="$3"
-bun_version="$4"
-node_version="$5"
-service_name="$6"
+service_name="$4"
 install_root="$HOME/.local/share/t3code-custom"
-runtime_root="$install_root/runtime"
 releases_root="$install_root/releases"
-bun_archive="bun-linux-x64.zip"
-bun_dir="$runtime_root/bun-v${bun_version}-linux-x64"
-bun_bin="$bun_dir/bun"
-node_archive="node-v${node_version}-linux-x64.tar.xz"
-node_dir="$runtime_root/node-v${node_version}-linux-x64"
-node_bin="$node_dir/bin/node"
 
 case "$(uname -s):$(uname -m)" in
   Linux:x86_64) ;;
@@ -75,64 +67,32 @@ if [[ "$actual_sha256" != "$expected_sha256" ]]; then
   exit 1
 fi
 
-mkdir -p -- "$runtime_root" "$releases_root"
-if [[ ! -x "$bun_bin" ]]; then
-  runtime_staging="$(mktemp -d "$runtime_root/.install.XXXXXX")"
-  trap 'rm -rf -- "$runtime_staging"' EXIT
-  curl -fsSLo "$runtime_staging/$bun_archive" \
-    "https://github.com/oven-sh/bun/releases/download/bun-v${bun_version}/$bun_archive"
-  curl -fsSLo "$runtime_staging/SHASUMS256.txt" \
-    "https://github.com/oven-sh/bun/releases/download/bun-v${bun_version}/SHASUMS256.txt"
-  expected_bun_sha256="$(awk -v archive="$bun_archive" '$2 == archive { print $1 }' "$runtime_staging/SHASUMS256.txt")"
-  actual_bun_sha256="$(sha256sum "$runtime_staging/$bun_archive" | awk '{print $1}')"
-  if [[ -z "$expected_bun_sha256" || "$actual_bun_sha256" != "$expected_bun_sha256" ]]; then
-    echo "Downloaded Bun runtime checksum does not match." >&2
-    exit 1
-  fi
-  unzip -q "$runtime_staging/$bun_archive" -d "$runtime_staging"
-  mkdir -p -- "$bun_dir"
-  mv -- "$runtime_staging/bun-linux-x64/bun" "$bun_bin"
-  chmod 755 "$bun_bin"
-  rm -rf -- "$runtime_staging"
-  trap - EXIT
-fi
-if [[ ! -x "$node_bin" ]]; then
-  runtime_staging="$(mktemp -d "$runtime_root/.install.XXXXXX")"
-  trap 'rm -rf -- "$runtime_staging"' EXIT
-  curl -fsSLo "$runtime_staging/$node_archive" \
-    "https://nodejs.org/dist/v${node_version}/$node_archive"
-  curl -fsSLo "$runtime_staging/SHASUMS256.txt" \
-    "https://nodejs.org/dist/v${node_version}/SHASUMS256.txt"
-  expected_node_sha256="$(awk -v archive="$node_archive" '$2 == archive { print $1 }' "$runtime_staging/SHASUMS256.txt")"
-  actual_node_sha256="$(sha256sum "$runtime_staging/$node_archive" | awk '{print $1}')"
-  if [[ -z "$expected_node_sha256" || "$actual_node_sha256" != "$expected_node_sha256" ]]; then
-    echo "Downloaded Node runtime checksum does not match." >&2
-    exit 1
-  fi
-  tar -xJf "$runtime_staging/$node_archive" -C "$runtime_staging"
-  mv -- "$runtime_staging/node-v${node_version}-linux-x64" "$node_dir"
-  rm -rf -- "$runtime_staging"
-  trap - EXIT
-fi
-export PATH="$node_dir/bin:$bun_dir:/usr/local/bin:/usr/bin:/bin"
-
+mkdir -p -- "$releases_root"
 release_id="${package_version}-${expected_sha256:0:12}"
 release_dir="$releases_root/$release_id"
-entry_path="$release_dir/node_modules/t3/dist/bin.mjs"
+entry_path="$release_dir/t3"
 if [[ ! -f "$entry_path" ]]; then
   release_staging="$(mktemp -d "$releases_root/.install.XXXXXX")"
-  printf '{"private":true}\n' >"$release_staging/package.json"
-  (
-    cd "$release_staging"
-    "$bun_bin" add --ignore-scripts "$package_path"
-  )
-  find "$release_staging/node_modules/t3/dist/resource-monitor" \
+  trap 'rm -rf -- "$release_staging"' EXIT
+  tar -xzf "$package_path" -C "$release_staging"
+  shopt -s nullglob dotglob
+  archive_roots=("$release_staging"/*)
+  shopt -u nullglob dotglob
+  if [[ ${#archive_roots[@]} -ne 1 || ! -d "${archive_roots[0]}" ]]; then
+    echo "Server archive must contain one root directory." >&2
+    exit 1
+  fi
+  archive_root="${archive_roots[0]}"
+  find "$archive_root/resource-monitor" \
     -type f \
     -name t3-resource-monitor \
     -exec chmod 755 {} +
-  "$node_bin" "$release_staging/node_modules/t3/dist/bin.mjs" --version |
+  chmod 755 "$archive_root/t3"
+  "$archive_root/t3" --version |
     grep -Fx -- "t3 v$package_version" >/dev/null
-  mv -- "$release_staging" "$release_dir"
+  mv -- "$archive_root" "$release_dir"
+  rm -rf -- "$release_staging"
+  trap - EXIT
 fi
 
 ln -sfn -- "$release_dir" "$install_root/current"
@@ -151,8 +111,8 @@ Wants=network-online.target
 Type=simple
 WorkingDirectory=$HOME
 Environment=NODE_ENV=production
-Environment=PATH=$node_dir/bin:$bun_dir:/usr/local/bin:/usr/bin:/bin
-ExecStart=$node_bin $install_root/current/node_modules/t3/dist/bin.mjs serve
+Environment=PATH=$HOME/.local/bin:$HOME/.bun/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=$install_root/current/t3 serve
 Restart=on-failure
 RestartSec=5
 
@@ -168,7 +128,7 @@ systemctl --user restart "$service_name"
 pair_output=""
 server_ready=false
 for _ in $(seq 1 30); do
-  if pair_output="$(timeout 5s "$node_bin" "$entry_path" pair 2>&1)"; then
+  if pair_output="$(timeout 5s "$entry_path" pair 2>&1)"; then
     server_ready=true
     break
   fi
@@ -191,7 +151,7 @@ if ! tailscale_output="$(
   exit 1
 fi
 
-if ! pair_output="$(timeout 15s "$node_bin" "$entry_path" pair --tailscale 2>&1)"; then
+if ! pair_output="$(timeout 15s "$entry_path" pair --tailscale 2>&1)"; then
   printf '%s\n' "$pair_output" >&2
   echo "The custom T3 Code server is running, but its Tailscale pairing URL is unavailable." >&2
   exit 1

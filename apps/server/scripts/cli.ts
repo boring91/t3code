@@ -169,28 +169,26 @@ const buildServer = Effect.fn("buildServer")(function* (verbose: boolean) {
   }
 });
 
-const buildServerAtVersion = Effect.fn("buildServerAtVersion")(function* (
-  version: string,
-  verbose: boolean,
-) {
-  const path = yield* Path.Path;
-  const fs = yield* FileSystem.FileSystem;
-  const repoRoot = yield* RepoRoot;
-  const packageJsonPath = path.join(repoRoot, "apps/server/package.json");
-  const versionEntry = `"version": "${serverPackageJson.version}"`;
+const withServerPackageVersion = <A, E, R>(version: string, effect: Effect.Effect<A, E, R>) =>
+  Effect.gen(function* () {
+    const path = yield* Path.Path;
+    const fs = yield* FileSystem.FileSystem;
+    const repoRoot = yield* RepoRoot;
+    const packageJsonPath = path.join(repoRoot, "apps/server/package.json");
+    const versionEntry = `"version": "${serverPackageJson.version}"`;
 
-  yield* Effect.acquireUseRelease(
-    fs.readFileString(packageJsonPath),
-    (originalPackageJson) =>
-      fs
-        .writeFileString(
-          packageJsonPath,
-          originalPackageJson.replace(versionEntry, `"version": "${version}"`),
-        )
-        .pipe(Effect.andThen(buildServer(verbose))),
-    (originalPackageJson) => fs.writeFileString(packageJsonPath, originalPackageJson),
-  );
-});
+    yield* Effect.acquireUseRelease(
+      fs.readFileString(packageJsonPath),
+      (originalPackageJson) =>
+        fs
+          .writeFileString(
+            packageJsonPath,
+            originalPackageJson.replace(versionEntry, `"version": "${version}"`),
+          )
+          .pipe(Effect.andThen(effect)),
+      (originalPackageJson) => fs.writeFileString(packageJsonPath, originalPackageJson),
+    );
+  });
 
 const buildCmd = Command.make(
   "build",
@@ -203,7 +201,7 @@ const buildCmd = Command.make(
       const appVersion = Option.getOrUndefined(config.appVersion);
       yield* appVersion === undefined
         ? buildServer(config.verbose)
-        : buildServerAtVersion(appVersion, config.verbose);
+        : withServerPackageVersion(appVersion, buildServer(config.verbose));
     }),
 ).pipe(Command.withDescription("Build the server package (tsdown + bundle web client)."));
 
@@ -313,9 +311,51 @@ const packCmd = Command.make(
 // build-exe subcommand
 // ---------------------------------------------------------------------------
 
+const buildExecutable = Effect.fn("buildExecutable")(function* (config: {
+  readonly verbose: boolean;
+  readonly target: Option.Option<string>;
+}) {
+  const path = yield* Path.Path;
+  const fs = yield* FileSystem.FileSystem;
+  const repoRoot = yield* RepoRoot;
+  const serverDir = path.join(repoRoot, "apps/server");
+
+  yield* Effect.log("[cli] Building single-executable...");
+  const spawnCommand = yield* resolveSpawnCommand("vp", ["pack"]);
+  yield* runCommand(
+    ChildProcess.make(spawnCommand.command, spawnCommand.args, {
+      cwd: serverDir,
+      env: {
+        ...process.env,
+        T3CODE_PACK_EXE: "1",
+        ...Option.match(config.target, {
+          onNone: () => ({}),
+          onSome: (target) => ({ T3CODE_PACK_EXE_TARGET: target }),
+        }),
+      },
+      stdout: config.verbose ? "inherit" : "ignore",
+      stderr: "inherit",
+      shell: spawnCommand.shell,
+    }),
+  );
+
+  // The executable can only `import` built-ins. A file-backed import
+  // passes the bundler and `node dist/bin.mjs`, then throws inside the
+  // binary, so read the emitted module graph rather than trusting config.
+  const bundlePath = path.join(serverDir, "dist-exe/bin.mjs");
+  const specifiers = findEsmImportsOfExternalPackages(yield* fs.readFileString(bundlePath));
+  if (specifiers.length > 0) {
+    return yield* new ServerCliExecutableImportError({ bundlePath, specifiers });
+  }
+  yield* Effect.log(
+    "[cli] Built dist-exe/t3 (expects client/, resource-monitor/, and the runtime-external node_modules beside it; scripts/build-cli-archive.ts assembles that tree)",
+  );
+});
+
 const buildExeCmd = Command.make(
   "build-exe",
   {
+    appVersion: Flag.string("app-version").pipe(Flag.optional),
     verbose: Flag.boolean("verbose").pipe(Flag.withDefault(false)),
     target: Flag.string("target").pipe(
       Flag.withDescription(
@@ -324,44 +364,11 @@ const buildExeCmd = Command.make(
       Flag.optional,
     ),
   },
-  (config) =>
-    Effect.gen(function* () {
-      const path = yield* Path.Path;
-      const fs = yield* FileSystem.FileSystem;
-      const repoRoot = yield* RepoRoot;
-      const serverDir = path.join(repoRoot, "apps/server");
-
-      yield* Effect.log("[cli] Building single-executable...");
-      const spawnCommand = yield* resolveSpawnCommand("vp", ["pack"]);
-      yield* runCommand(
-        ChildProcess.make(spawnCommand.command, spawnCommand.args, {
-          cwd: serverDir,
-          env: {
-            ...process.env,
-            T3CODE_PACK_EXE: "1",
-            ...Option.match(config.target, {
-              onNone: () => ({}),
-              onSome: (target) => ({ T3CODE_PACK_EXE_TARGET: target }),
-            }),
-          },
-          stdout: config.verbose ? "inherit" : "ignore",
-          stderr: "inherit",
-          shell: spawnCommand.shell,
-        }),
-      );
-
-      // The executable can only `import` built-ins. A file-backed import
-      // passes the bundler and `node dist/bin.mjs`, then throws inside the
-      // binary, so read the emitted module graph rather than trusting config.
-      const bundlePath = path.join(serverDir, "dist-exe/bin.mjs");
-      const specifiers = findEsmImportsOfExternalPackages(yield* fs.readFileString(bundlePath));
-      if (specifiers.length > 0) {
-        return yield* new ServerCliExecutableImportError({ bundlePath, specifiers });
-      }
-      yield* Effect.log(
-        "[cli] Built dist-exe/t3 (expects client/, resource-monitor/, and the runtime-external node_modules beside it; scripts/build-cli-archive.ts assembles that tree)",
-      );
-    }),
+  (config) => {
+    const appVersion = Option.getOrUndefined(config.appVersion);
+    const build = buildExecutable(config);
+    return appVersion === undefined ? build : withServerPackageVersion(appVersion, build);
+  },
 ).pipe(
   Command.withDescription(
     "Build the server as a Node single-executable (needs a Node 25.7+ host for --build-sea). The binary still resolves native packages from a node_modules tree beside it.",

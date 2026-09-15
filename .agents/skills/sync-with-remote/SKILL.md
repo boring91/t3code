@@ -62,13 +62,15 @@ If `upstream/main` is already integrated, skip the merge commit and proceed to r
 
 1. Run `vp run dist:custom:release`. This existing command builds the host-architecture macOS DMG
    and a Release-configuration IPA, using the personal bundle identifier and Apple team from the
-   repository-root `.env.local`. It also packs the custom `t3` server as an installable npm tarball.
+   repository-root `.env.local`. It also builds the custom `t3` server as a self-contained Linux
+   x64 CLI archive.
 2. If the build exposes a source or sync regression, fix it minimally, rerun focused verification,
    commit the fix, and rerun the combined release command. If signing or another external
    prerequisite is missing, report the exact requirement rather than claiming completion.
 3. Use the exact artifact paths printed by the command. Verify the DMG with `hdiutil verify`, the
    IPA with `unzip -tq`, and the server package with `tar -tzf`. Confirm the packaged `package.json`
-   has the release version and no workspace or catalog dependency ranges.
+   has the release version and no workspace or catalog dependency ranges, and confirm the archive
+   contains `t3`, the web client, and the Linux resource monitor.
 4. Record SHA-256 checksums for all three artifacts with `shasum -a 256`.
 
 The default IPA export method is `debugging`: it is a Release binary installable on devices
@@ -80,10 +82,10 @@ provisioned by the selected Apple team, not an App Store upload. Honor
 1. After all local artifacts pass validation, run
    `bash scripts/deploy-custom-server.sh <absolute-server-package-path>`. It defaults to
    `boring@100.108.40.121`; honor `T3CODE_REMOTE_HOST` when deliberately configured.
-2. The deployer verifies the upload, provisions its own user-local Bun and Node runtimes when needed,
-   installs an immutable server release, restarts `t3code-custom.service` with `t3 serve`, and
+2. The deployer verifies the upload, installs the self-contained executable as an immutable server
+   release, restarts `t3code-custom.service` with `t3 serve`, and
    persists a Tailscale Serve mapping to it. Do not use `t3 service install`, which resolves the
-   official npm package instead of this fork's tarball.
+   official npm package instead of this fork's archive.
 3. Require the reported package version to match, the service state to be `active`, and the pairing
    command to return successfully. Preserve and report its pairing URL so the user can add the
    environment from desktop or mobile.
