@@ -139,7 +139,7 @@ else
   echo "Warning: could not fetch matching upstream resource monitors." >&2
 fi
 rm -f -- "$server_package_path"
-VP_NODE_VERSION=26.8.2 node "$repo_root/apps/server/scripts/cli.ts" build-exe \
+VP_NODE_VERSION=26.8.2 vp exec node "$repo_root/apps/server/scripts/cli.ts" build-exe \
   --app-version "$release_version" \
   --target linux-x64 \
   --verbose
