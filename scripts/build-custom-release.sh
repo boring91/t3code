@@ -120,6 +120,7 @@ official_server_package="$(
     --pack-destination "$staging_dir" \
     --silent 2>/dev/null || true
 )"
+official_runtime_externals_dir=""
 if [[ -n "$official_server_package" && -f "$staging_dir/$official_server_package" ]]; then
   official_server_dir="$staging_dir/official-server"
   mkdir -p "$official_server_dir"
@@ -128,15 +129,18 @@ if [[ -n "$official_server_package" && -f "$staging_dir/$official_server_package
   if [[ ! -d "$official_resource_monitor_dir" ]]; then
     official_resource_monitor_dir="$official_server_dir/package/dist/resource-monitor"
   fi
-  if [[ -d "$official_resource_monitor_dir" ]]; then
-    mkdir -p "$repo_root/apps/server/dist/resource-monitor"
-    cp -R "$official_resource_monitor_dir/." \
-      "$repo_root/apps/server/dist/resource-monitor/"
-  else
-    echo "Warning: the matching upstream platform package has no resource monitors." >&2
+  if [[ ! -d "$official_resource_monitor_dir" ]]; then
+    echo "The matching upstream platform package has no resource monitors." >&2
+    exit 1
+  fi
+  official_runtime_externals_dir="$official_server_dir/package/node_modules"
+  if [[ ! -d "$official_runtime_externals_dir" ]]; then
+    echo "The matching upstream platform package has no Linux runtime externals." >&2
+    exit 1
   fi
 else
-  echo "Warning: could not fetch matching upstream resource monitors." >&2
+  echo "Could not fetch the matching upstream Linux platform package." >&2
+  exit 1
 fi
 rm -f -- "$server_package_path"
 vp_cli="${VP_CLI_BIN:-$(command -v vp)}"
@@ -152,7 +156,8 @@ COPYFILE_DISABLE=1 node "$repo_root/scripts/build-cli-archive.ts" \
   --platform linux \
   --arch x64 \
   --version "$release_version" \
-  --resource-monitor-dir "$repo_root/apps/server/dist/resource-monitor" \
+  --resource-monitor-dir "$official_resource_monitor_dir" \
+  --runtime-externals-dir "$official_runtime_externals_dir" \
   --output-dir "$server_archive_dir"
 server_archives=("$server_archive_dir"/*.tar.gz)
 if [[ ${#server_archives[@]} -ne 1 ]]; then

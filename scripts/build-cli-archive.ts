@@ -462,6 +462,7 @@ const buildCliArchive = Effect.fn("buildCliArchive")(function* (input: {
   readonly version: string;
   readonly outputDir: string;
   readonly resourceMonitorDir: Option.Option<string>;
+  readonly runtimeExternalsDir: Option.Option<string>;
 }) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
@@ -509,13 +510,21 @@ const buildCliArchive = Effect.fn("buildCliArchive")(function* (input: {
   yield* fs.copyFile(builtExecutable, path.join(contentDir, executableName));
   yield* stageWebClient(webClient, path.join(contentDir, "client"));
   yield* fs.copy(resourceMonitorDir, path.join(contentDir, "resource-monitor"));
-  yield* stageRuntimeExternals({
-    repoRoot,
-    stageDir: contentDir,
-    platform: input.platform,
-    arch: input.arch,
-    version: input.version,
-  });
+  if (Option.isSome(input.runtimeExternalsDir)) {
+    yield* requireInput(
+      input.runtimeExternalsDir.value,
+      "Pass a directory containing the target platform's runtime packages.",
+    );
+    yield* fs.copy(input.runtimeExternalsDir.value, path.join(contentDir, "node_modules"));
+  } else {
+    yield* stageRuntimeExternals({
+      repoRoot,
+      stageDir: contentDir,
+      platform: input.platform,
+      arch: input.arch,
+      version: input.version,
+    });
+  }
 
   const executablePath = path.join(contentDir, executableName);
   if (input.platform === "mac") {
@@ -550,6 +559,7 @@ const buildCliArchive = Effect.fn("buildCliArchive")(function* (input: {
     yield* runCommand(
       ChildProcess.make("tar", [
         ...(hostPlatform === "linux" ? ["--hard-dereference"] : []),
+        ...(hostPlatform === "darwin" ? ["--no-xattrs"] : []),
         "-czf",
         archivePath,
         "-C",
@@ -577,6 +587,10 @@ const command = Command.make(
       Flag.withDescription(
         "Directory laid out like dist/resource-monitor (defaults to apps/server/dist/resource-monitor).",
       ),
+      Flag.optional,
+    ),
+    runtimeExternalsDir: Flag.string("runtime-externals-dir").pipe(
+      Flag.withDescription("Prebuilt node_modules for the target platform."),
       Flag.optional,
     ),
   },

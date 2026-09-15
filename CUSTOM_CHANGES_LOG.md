@@ -15,7 +15,8 @@ mobile Changes workflow or its change-file, stage, and unstage RPCs.
   this log, run focused checks, build all release artifacts, and deploy the custom headless server
   to the configured Tailscale host. After validation and deployment succeed, it pushes the current
   branch to the configured fork remote. The server artifact uses upstream's self-contained CLI
-  archive layout, so the deployment does not depend on a system JavaScript runtime.
+  archive layout and the matching upstream Linux package's native runtime dependencies, so macOS
+  can cross-package a Linux server without requiring a system JavaScript runtime on the host.
 - Keeps production CORS headers on normal Bun server responses so desktop and web clients can pair
   with the deployed headless server.
 
