@@ -80,7 +80,7 @@ provisioned by the selected Apple team, not an App Store upload. Honor
 1. After all local artifacts pass validation, run
    `bash scripts/deploy-custom-server.sh <absolute-server-package-path>`. It defaults to
    `boring@100.108.40.121`; honor `T3CODE_REMOTE_HOST` when deliberately configured.
-2. The deployer verifies the upload, provisions its own user-local Bun runtime when needed,
+2. The deployer verifies the upload, provisions its own user-local Bun and Node runtimes when needed,
    installs an immutable server release, restarts `t3code-custom.service` with `t3 serve`, and
    persists a Tailscale Serve mapping to it. Do not use `t3 service install`, which resolves the
    official npm package instead of this fork's tarball.

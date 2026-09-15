@@ -10,6 +10,7 @@ fi
 package_path="$(cd -- "$(dirname -- "$1")" && pwd)/$(basename -- "$1")"
 remote_host="${T3CODE_REMOTE_HOST:-boring@100.108.40.121}"
 bun_version="${T3CODE_REMOTE_BUN_VERSION:-1.3.3}"
+node_version="${T3CODE_REMOTE_NODE_VERSION:-24.13.1}"
 service_name="t3code-custom.service"
 
 if [[ ! -f "$package_path" ]]; then
@@ -40,6 +41,7 @@ ssh -o BatchMode=yes "$remote_host" bash -s -- \
   "$package_sha256" \
   "$package_version" \
   "$bun_version" \
+  "$node_version" \
   "$service_name" <<'REMOTE_SCRIPT'
 set -euo pipefail
 
@@ -47,13 +49,17 @@ package_path="$HOME/$1"
 expected_sha256="$2"
 package_version="$3"
 bun_version="$4"
-service_name="$5"
+node_version="$5"
+service_name="$6"
 install_root="$HOME/.local/share/t3code-custom"
 runtime_root="$install_root/runtime"
 releases_root="$install_root/releases"
 bun_archive="bun-linux-x64.zip"
 bun_dir="$runtime_root/bun-v${bun_version}-linux-x64"
 bun_bin="$bun_dir/bun"
+node_archive="node-v${node_version}-linux-x64.tar.xz"
+node_dir="$runtime_root/node-v${node_version}-linux-x64"
+node_bin="$node_dir/bin/node"
 
 case "$(uname -s):$(uname -m)" in
   Linux:x86_64) ;;
@@ -87,8 +93,28 @@ if [[ ! -x "$bun_bin" ]]; then
   mkdir -p -- "$bun_dir"
   mv -- "$runtime_staging/bun-linux-x64/bun" "$bun_bin"
   chmod 755 "$bun_bin"
+  rm -rf -- "$runtime_staging"
+  trap - EXIT
 fi
-export PATH="$bun_dir:/usr/local/bin:/usr/bin:/bin"
+if [[ ! -x "$node_bin" ]]; then
+  runtime_staging="$(mktemp -d "$runtime_root/.install.XXXXXX")"
+  trap 'rm -rf -- "$runtime_staging"' EXIT
+  curl -fsSLo "$runtime_staging/$node_archive" \
+    "https://nodejs.org/dist/v${node_version}/$node_archive"
+  curl -fsSLo "$runtime_staging/SHASUMS256.txt" \
+    "https://nodejs.org/dist/v${node_version}/SHASUMS256.txt"
+  expected_node_sha256="$(awk -v archive="$node_archive" '$2 == archive { print $1 }' "$runtime_staging/SHASUMS256.txt")"
+  actual_node_sha256="$(sha256sum "$runtime_staging/$node_archive" | awk '{print $1}')"
+  if [[ -z "$expected_node_sha256" || "$actual_node_sha256" != "$expected_node_sha256" ]]; then
+    echo "Downloaded Node runtime checksum does not match." >&2
+    exit 1
+  fi
+  tar -xJf "$runtime_staging/$node_archive" -C "$runtime_staging"
+  mv -- "$runtime_staging/node-v${node_version}-linux-x64" "$node_dir"
+  rm -rf -- "$runtime_staging"
+  trap - EXIT
+fi
+export PATH="$node_dir/bin:$bun_dir:/usr/local/bin:/usr/bin:/bin"
 
 release_id="${package_version}-${expected_sha256:0:12}"
 release_dir="$releases_root/$release_id"
@@ -104,7 +130,7 @@ if [[ ! -f "$entry_path" ]]; then
     -type f \
     -name t3-resource-monitor \
     -exec chmod 755 {} +
-  "$bun_bin" "$release_staging/node_modules/t3/dist/bin.mjs" --version |
+  "$node_bin" "$release_staging/node_modules/t3/dist/bin.mjs" --version |
     grep -Fx -- "t3 v$package_version" >/dev/null
   mv -- "$release_staging" "$release_dir"
 fi
@@ -125,8 +151,8 @@ Wants=network-online.target
 Type=simple
 WorkingDirectory=$HOME
 Environment=NODE_ENV=production
-Environment=PATH=$bun_dir:/usr/local/bin:/usr/bin:/bin
-ExecStart=$bun_bin $install_root/current/node_modules/t3/dist/bin.mjs serve
+Environment=PATH=$node_dir/bin:$bun_dir:/usr/local/bin:/usr/bin:/bin
+ExecStart=$node_bin $install_root/current/node_modules/t3/dist/bin.mjs serve
 Restart=on-failure
 RestartSec=5
 
@@ -142,7 +168,7 @@ systemctl --user restart "$service_name"
 pair_output=""
 server_ready=false
 for _ in $(seq 1 30); do
-  if pair_output="$(timeout 5s "$bun_bin" "$entry_path" pair 2>&1)"; then
+  if pair_output="$(timeout 5s "$node_bin" "$entry_path" pair 2>&1)"; then
     server_ready=true
     break
   fi
@@ -165,7 +191,7 @@ if ! tailscale_output="$(
   exit 1
 fi
 
-if ! pair_output="$(timeout 15s "$bun_bin" "$entry_path" pair --tailscale 2>&1)"; then
+if ! pair_output="$(timeout 15s "$node_bin" "$entry_path" pair --tailscale 2>&1)"; then
   printf '%s\n' "$pair_output" >&2
   echo "The custom T3 Code server is running, but its Tailscale pairing URL is unavailable." >&2
   exit 1

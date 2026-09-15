@@ -14,7 +14,8 @@ mobile Changes workflow or its change-file, stage, and unstage RPCs.
 - Adds the user-invoked `$sync-with-remote` project skill to audit and integrate upstream, reconcile
   this log, run focused checks, build all release artifacts, and deploy the custom headless server
   to the configured Tailscale host. After validation and deployment succeed, it pushes the current
-  branch to the configured fork remote.
+  branch to the configured fork remote. The deployer provisions pinned user-local Bun and Node
+  runtimes so the packaged server does not depend on system runtimes.
 - Keeps production CORS headers on normal Bun server responses so desktop and web clients can pair
   with the deployed headless server.
 
