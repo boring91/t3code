@@ -549,7 +549,7 @@ const buildCliArchive = Effect.fn("buildCliArchive")(function* (input: {
     // file as a file. macOS's bsdtar has no such flag; pnpm clones there.
     yield* runCommand(
       ChildProcess.make("tar", [
-        ...(input.platform === "linux" ? ["--hard-dereference"] : []),
+        ...(hostPlatform === "linux" ? ["--hard-dereference"] : []),
         "-czf",
         archivePath,
         "-C",
