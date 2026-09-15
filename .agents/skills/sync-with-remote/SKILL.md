@@ -68,9 +68,8 @@ If `upstream/main` is already integrated, skip the merge commit and proceed to r
    commit the fix, and rerun the combined release command. If signing or another external
    prerequisite is missing, report the exact requirement rather than claiming completion.
 3. Use the exact artifact paths printed by the command. Verify the DMG with `hdiutil verify`, the
-   IPA with `unzip -tq`, and the server package with `tar -tzf`. Confirm the packaged `package.json`
-   has the release version and no workspace or catalog dependency ranges, and confirm the archive
-   contains `t3`, the web client, and the Linux resource monitor.
+   IPA with `unzip -tq`, and the server package with `tar -tzf`. Confirm the server archive root
+   names the release version and contains `t3`, the web client, and the Linux resource monitor.
 4. Record SHA-256 checksums for all three artifacts with `shasum -a 256`.
 
 The default IPA export method is `debugging`: it is a Release binary installable on devices

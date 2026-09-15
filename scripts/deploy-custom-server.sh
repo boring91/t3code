@@ -16,20 +16,22 @@ if [[ ! -f "$package_path" ]]; then
   exit 1
 fi
 
-manifest_path="$(tar -tzf "$package_path" | awk -F/ 'NF == 2 && $2 == "package.json" { print; exit }')"
-if [[ -z "$manifest_path" ]]; then
-  echo "Server archive has no root package manifest." >&2
+archive_root="$(tar -tzf "$package_path" | awk -F/ 'NF > 1 { print $1; exit }')"
+if [[ "$archive_root" != t3-*-linux-x64 ]]; then
+  echo "Server archive has an unexpected root: $archive_root" >&2
   exit 1
 fi
-package_version="$(
-  tar -xOf "$package_path" "$manifest_path" |
-    node -e 'let value=""; process.stdin.on("data", chunk => value += chunk); process.stdin.on("end", () => process.stdout.write(JSON.parse(value).version))'
-)"
+package_version="${archive_root#t3-}"
+package_version="${package_version%-linux-x64}"
 package_sha256="$(shasum -a 256 "$package_path" | awk '{print $1}')"
 package_name="$(basename -- "$package_path")"
 
 if [[ ! "$package_version" =~ ^[0-9A-Za-z._+-]+$ ]]; then
   echo "Invalid package version: $package_version" >&2
+  exit 1
+fi
+if ! tar -tzf "$package_path" | grep -Fx -- "$archive_root/t3" >/dev/null; then
+  echo "Server archive has no t3 executable." >&2
   exit 1
 fi
 
