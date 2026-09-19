@@ -115,11 +115,17 @@ echo "Packaging the standalone server..."
 node "$repo_root/apps/server/scripts/cli.ts" build \
   --app-version "$release_version" \
   --verbose
-official_server_package="$(
-  vp env exec --node 24.21.0 npm pack "@t3code/t3-linux-x64@$release_version" \
-    --pack-destination "$staging_dir" \
-    --silent 2>/dev/null || true
-)"
+official_server_package=""
+for _ in 1 2 3; do
+  official_server_package="$(
+    vp env exec --node 24.21.0 npm pack "@t3code/t3-linux-x64@$release_version" \
+      --pack-destination "$staging_dir" \
+      --silent 2>/dev/null || true
+  )"
+  if [[ -n "$official_server_package" && -f "$staging_dir/$official_server_package" ]]; then
+    break
+  fi
+done
 official_runtime_externals_dir=""
 if [[ -n "$official_server_package" && -f "$staging_dir/$official_server_package" ]]; then
   official_server_dir="$staging_dir/official-server"
