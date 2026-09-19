@@ -589,7 +589,7 @@ const command = Command.make(
       ),
       Flag.optional,
     ),
-    runtimeExternalsDir: Flag.string("runtime-externals-dir").pipe(
+    runtimeExternalsDir: Flag.String("runtime-externals-dir").pipe(
       Flag.withDescription("Prebuilt node_modules for the target platform."),
       Flag.optional,
     ),
