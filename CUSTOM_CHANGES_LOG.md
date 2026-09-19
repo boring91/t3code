@@ -24,6 +24,9 @@ mobile Changes workflow or its change-file, stage, and unstage RPCs.
   can cross-package a Linux server without requiring a system JavaScript runtime on the host.
 - Keeps production CORS headers on normal Bun server responses so desktop and web clients can pair
   with the deployed headless server.
+- Keeps release packaging deterministic by disabling the optional `msgpackr-extract` install script,
+  using the repository-managed npm to fetch Linux runtime dependencies, and retaining the custom
+  runtime-externals archive flag across Effect CLI upgrades.
 
 ## Mobile Git Changes workflow
 
