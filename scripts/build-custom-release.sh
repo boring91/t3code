@@ -21,7 +21,7 @@ case "$(uname -m)" in
     ;;
 esac
 
-for command_name in git npm plutil shasum tar vp xcodebuild; do
+for command_name in git plutil shasum tar vp xcodebuild; do
   if ! command -v "$command_name" >/dev/null 2>&1; then
     echo "Missing required command: $command_name" >&2
     exit 1
@@ -116,7 +116,7 @@ node "$repo_root/apps/server/scripts/cli.ts" build \
   --app-version "$release_version" \
   --verbose
 official_server_package="$(
-  npm pack "@t3code/t3-linux-x64@$release_version" \
+  vp env exec --node 24.21.0 npm pack "@t3code/t3-linux-x64@$release_version" \
     --pack-destination "$staging_dir" \
     --silent 2>/dev/null || true
 )"
