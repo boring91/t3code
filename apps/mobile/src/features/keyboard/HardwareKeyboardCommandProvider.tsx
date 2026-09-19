@@ -1,6 +1,8 @@
 import { StackActions, useNavigation } from "@react-navigation/native";
 import { resolveThreadReferenceCopyTarget } from "@t3tools/shared/threadReference";
 import {
+  createContext,
+  use,
   useCallback,
   useEffect,
   useMemo,
@@ -8,6 +10,7 @@ import {
   useState,
   useSyncExternalStore,
   type PropsWithChildren,
+  type ReactNode,
 } from "react";
 
 import { tryCopyTextWithHaptic } from "../../lib/copyTextWithHaptic";
@@ -15,6 +18,7 @@ import { T3KeyboardCommands } from "../../native/T3KeyboardCommands";
 import { useEnvironmentServerConfig, useThreadShell } from "../../state/entities";
 import type { GitActionProgress } from "../../state/use-vcs-action-state";
 import { GitActionProgressOverlay } from "../threads/GitActionProgressOverlay";
+import { CommandPalette } from "./CommandPalette";
 import {
   dispatchHardwareKeyboardCommand,
   getHardwareKeyboardCommandRegistrationVersion,
@@ -31,11 +35,20 @@ const EMPTY_COPY_FEEDBACK: GitActionProgress = {
 };
 const COPY_FEEDBACK_DISMISS_MS = 3_000;
 
+const CommandPaletteContext = createContext<ReactNode>(null);
+
+/** Render inside the workspace so palette actions share its navigation and pane state. */
+export function HardwareKeyboardCommandOverlay() {
+  return use(CommandPaletteContext);
+}
+
 export function HardwareKeyboardCommandProvider({
   children,
   pathname,
 }: PropsWithChildren<{ readonly pathname: string }>) {
   const navigation = useNavigation();
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const closePalette = useCallback(() => setPaletteOpen(false), []);
   const activeThreadRef = useMemo(() => parseActiveThreadPath(pathname), [pathname]);
   const serverConfig = useEnvironmentServerConfig(activeThreadRef?.environmentId ?? null);
   const activeThread = useThreadShell(activeThreadRef);
@@ -87,6 +100,12 @@ export function HardwareKeyboardCommandProvider({
   const enabledCommands = useMemo(() => {
     const commands = new Set<HardwareKeyboardCommand>(getRegisteredHardwareKeyboardCommands());
     commands.add("newTask");
+    commands.add("commandPalette");
+    if (pathname !== "/" && !pathname.startsWith("/threads/")) {
+      for (const command of commands) {
+        if (command.startsWith("thread.jump.")) commands.delete(command);
+      }
+    }
     if (pathname !== "/" || navigation.canGoBack()) commands.add("back");
     if (activeThreadRef !== null) {
       commands.add("files");
@@ -95,10 +114,14 @@ export function HardwareKeyboardCommandProvider({
       if (pathname.split("/")[4] !== "terminal") commands.add("copyThreadReference");
     }
     return [...commands];
-  }, [pathname, registrationVersion, navigation]);
+  }, [activeThreadRef, pathname, registrationVersion, navigation]);
 
   const onCommand = useCallback(
     (command: HardwareKeyboardCommand) => {
+      if (command === "commandPalette") {
+        setPaletteOpen(true);
+        return;
+      }
       if (dispatchHardwareKeyboardCommand(command)) return;
 
       if (command === "copyThreadReference") {
@@ -158,12 +181,20 @@ export function HardwareKeyboardCommandProvider({
     [copyTarget, navigation, pathname, serverConfig, showCopyFeedback],
   );
 
+  const palette = useMemo(
+    () =>
+      paletteOpen ? (
+        <CommandPalette pathname={pathname} onClose={closePalette} onCommand={onCommand} />
+      ) : null,
+    [closePalette, onCommand, paletteOpen, pathname],
+  );
+
   return (
-    <>
+    <CommandPaletteContext value={palette}>
       <T3KeyboardCommands enabledCommands={enabledCommands} onCommand={onCommand}>
         {children}
       </T3KeyboardCommands>
       <GitActionProgressOverlay progress={copyFeedback} onDismiss={dismissCopyFeedback} />
-    </>
+    </CommandPaletteContext>
   );
 }

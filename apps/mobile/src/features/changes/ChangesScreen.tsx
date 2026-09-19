@@ -36,7 +36,6 @@ import { AppText as Text } from "../../components/AppText";
 import { PierreEntryIcon } from "../../components/PierreEntryIcon";
 import { SymbolView } from "../../components/AppSymbol";
 import { ControlPill, ControlPillMenu } from "../../components/ControlPill";
-import { useUniwindTheme } from "../../lib/useUniwindTheme";
 import { uuidv4 } from "../../lib/uuid";
 import { NativeHeaderToolbar } from "../../native/StackHeader";
 import { useEnvironmentServerConfig } from "../../state/entities";
@@ -111,9 +110,6 @@ export function ChangesScreen(props: ChangesScreenProps) {
   const { environmentId, threadId } = props.route.params;
   const navigation = useNavigation<NativeStackNavigationProp<ParamListBase>>();
   const insets = useSafeAreaInsets();
-  const theme = useUniwindTheme();
-  const iconColor = String(theme["--color-icon"]);
-  const subtleIconColor = String(theme["--color-icon-subtle"]);
   const { selectedThread } = useThreadSelection();
   const { selectedThreadCwd } = useSelectedThreadWorktree();
   const serverConfig = useEnvironmentServerConfig(environmentId);
@@ -461,7 +457,7 @@ export function ChangesScreen(props: ChangesScreenProps) {
         </View>
       ) : isClean ? (
         <View className="flex-1 items-center justify-center gap-4 px-8">
-          <SymbolView name="checkmark.circle" size={36} tintColor={iconColor} />
+          <SymbolView name="checkmark.circle" size={36} tintColorClassName="accent-icon" />
           <Text className="text-center text-base font-t3-bold text-foreground">
             No uncommitted changes
           </Text>
@@ -500,9 +496,9 @@ export function ChangesScreen(props: ChangesScreenProps) {
                     <SymbolView
                       name={item.expanded ? "chevron.down" : "chevron.right"}
                       size={12}
-                      tintColor={subtleIconColor}
+                      tintColorClassName="accent-icon-subtle"
                     />
-                    <SymbolView name="folder" size={16} tintColor={iconColor} />
+                    <SymbolView name="folder" size={16} tintColorClassName="accent-icon" />
                     <Text
                       numberOfLines={1}
                       className="min-w-0 flex-1 text-sm font-t3-bold text-foreground"
@@ -528,7 +524,7 @@ export function ChangesScreen(props: ChangesScreenProps) {
                       accessibilityLabel={`Folder actions for ${item.id}`}
                       className="min-h-12 w-12 items-center justify-center"
                     >
-                      <SymbolView name="ellipsis" size={18} tintColor={iconColor} />
+                      <SymbolView name="ellipsis" size={18} tintColorClassName="accent-icon" />
                     </Pressable>
                   </ControlPillMenu>
                 </View>
@@ -584,7 +580,7 @@ export function ChangesScreen(props: ChangesScreenProps) {
                     accessibilityLabel={`File actions for ${change.path}`}
                     className="min-h-14 w-12 items-center justify-center"
                   >
-                    <SymbolView name="ellipsis" size={18} tintColor={iconColor} />
+                    <SymbolView name="ellipsis" size={18} tintColorClassName="accent-icon" />
                   </Pressable>
                 </ControlPillMenu>
               </View>

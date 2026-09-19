@@ -112,15 +112,17 @@ export function nextChangeAfterMutation(
     const previousIndex = previousOrder.indexOf(currentPath);
     if (previousIndex < 0) return visibleChanges[0] ?? null;
     const orderByPath = new Map(previousOrder.map((path, index) => [path, index]));
-    return (
-      visibleChanges.find((change) => (orderByPath.get(change.path) ?? -1) > previousIndex) ??
-      visibleChanges
-        .toReversed()
-        .find(
-          (change) => (orderByPath.get(change.path) ?? Number.MAX_SAFE_INTEGER) < previousIndex,
-        ) ??
-      null
+    const next = visibleChanges.find(
+      (change) => (orderByPath.get(change.path) ?? -1) > previousIndex,
     );
+    if (next) return next;
+    for (let index = visibleChanges.length - 1; index >= 0; index -= 1) {
+      const change = visibleChanges[index];
+      if (change && (orderByPath.get(change.path) ?? Number.MAX_SAFE_INTEGER) < previousIndex) {
+        return change;
+      }
+    }
+    return null;
   }
   return visibleChanges[currentIndex + 1] ?? visibleChanges[currentIndex - 1] ?? null;
 }

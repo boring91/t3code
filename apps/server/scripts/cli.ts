@@ -6,19 +6,11 @@ import * as FileSystem from "effect/FileSystem";
 import * as Logger from "effect/Logger";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
-import * as Schema from "effect/Schema";
 import { Command, Flag } from "effect/unstable/cli";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
-import {
-  DEVELOPMENT_ICON_OVERRIDES,
-  resolveWebAssetBrandForPackageVersion,
-  resolveWebIconOverrides,
-} from "../../../scripts/lib/brand-assets.ts";
-import { findEsmImportsOfExternalPackages } from "../../../scripts/lib/cli-external-packages.ts";
-import { resolveCatalogDependencies } from "../../../scripts/lib/resolve-catalog.ts";
-import { fromJsonStringPretty } from "@t3tools/shared/schemaJson";
-import { fromYaml } from "@t3tools/shared/schemaYaml";
+import { DEVELOPMENT_ICON_OVERRIDES } from "../../../scripts/lib/brand-assets.ts";
+import { findEsmImportsOfExternalPackages } from "../../../scripts/lib/cli-executable-imports.ts";
 import { resolveSpawnCommand } from "@t3tools/shared/shell";
 import serverPackageJson from "../package.json" with { type: "json" };
 import {
@@ -27,46 +19,11 @@ import {
   ServerCliDevelopmentIconSourceMissingError,
   ServerCliDevelopmentIconTargetMissingError,
   ServerCliExecutableImportError,
-  ServerCliPublishIconSourceMissingError,
-  ServerCliPublishIconTargetMissingError,
 } from "./cliErrors.ts";
-
-interface PackageJson {
-  name: string;
-  repository: {
-    type: string;
-    url: string;
-    directory: string;
-  };
-  bin: Record<string, string>;
-  type: string;
-  version: string;
-  engines: Record<string, string>;
-  files: string[];
-  dependencies: Record<string, string>;
-  overrides: Record<string, string>;
-}
-
-const encodePackageJson = Schema.encodeEffect(fromJsonStringPretty(Schema.Unknown));
-
-const WorkspaceConfig = Schema.Struct({
-  catalog: Schema.optional(Schema.Record(Schema.String, Schema.String)),
-  overrides: Schema.optional(Schema.Record(Schema.String, Schema.String)),
-});
-const decodeWorkspaceConfig = Schema.decodeEffect(fromYaml(WorkspaceConfig));
 
 const RepoRoot = Effect.service(Path.Path).pipe(
   Effect.flatMap((path) => path.fromFileUrl(new URL("../../..", import.meta.url))),
 );
-
-const readWorkspaceConfig = Effect.fn("readWorkspaceConfig")(function* () {
-  const path = yield* Path.Path;
-  const fs = yield* FileSystem.FileSystem;
-  const repoRoot = yield* RepoRoot;
-  return yield* decodeWorkspaceConfig(
-    yield* fs.readFileString(path.join(repoRoot, "pnpm-workspace.yaml")),
-  );
-});
 
 const runCommand = Effect.fn("runCommand")(function* (command: ChildProcess.StandardCommand) {
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
@@ -81,36 +38,6 @@ const runCommand = Effect.fn("runCommand")(function* (command: ChildProcess.Stan
       exitCode,
     });
   }
-});
-
-const preparePublishIcons = Effect.fn("preparePublishIcons")(function* (
-  repoRoot: string,
-  serverDir: string,
-  version: string,
-) {
-  const path = yield* Path.Path;
-  const fs = yield* FileSystem.FileSystem;
-  const brand = resolveWebAssetBrandForPackageVersion(version);
-  const icons = resolveWebIconOverrides(brand, "dist/client").map((override) => ({
-    sourcePath: path.join(repoRoot, override.sourceRelativePath),
-    targetPath: path.join(serverDir, override.targetRelativePath),
-  }));
-
-  for (const icon of icons) {
-    if (!(yield* fs.exists(icon.sourcePath))) {
-      return yield* new ServerCliPublishIconSourceMissingError({ sourcePath: icon.sourcePath });
-    }
-    if (!(yield* fs.exists(icon.targetPath))) {
-      return yield* new ServerCliPublishIconTargetMissingError({ targetPath: icon.targetPath });
-    }
-  }
-
-  return yield* Effect.forEach(icons, (icon) =>
-    Effect.all({
-      original: fs.readFile(icon.targetPath),
-      publish: fs.readFile(icon.sourcePath),
-    }).pipe(Effect.map((contents) => ({ ...icon, ...contents }))),
-  );
 });
 
 const applyDevelopmentIconOverrides = Effect.fn("applyDevelopmentIconOverrides")(function* (
@@ -136,6 +63,27 @@ const applyDevelopmentIconOverrides = Effect.fn("applyDevelopmentIconOverrides")
 
   yield* Effect.log("[cli] Applied development icon overrides to dist/client");
 });
+
+const withServerPackageVersion = <A, E, R>(version: string, effect: Effect.Effect<A, E, R>) =>
+  Effect.gen(function* () {
+    const path = yield* Path.Path;
+    const fs = yield* FileSystem.FileSystem;
+    const repoRoot = yield* RepoRoot;
+    const packageJsonPath = path.join(repoRoot, "apps/server/package.json");
+    const versionEntry = `"version": "${serverPackageJson.version}"`;
+
+    yield* Effect.acquireUseRelease(
+      fs.readFileString(packageJsonPath),
+      (packageJson) =>
+        fs
+          .writeFileString(
+            packageJsonPath,
+            packageJson.replace(versionEntry, `"version": "${version}"`),
+          )
+          .pipe(Effect.andThen(effect)),
+      (packageJson) => fs.writeFileString(packageJsonPath, packageJson),
+    );
+  });
 
 // ---------------------------------------------------------------------------
 // build subcommand
@@ -169,151 +117,26 @@ const buildServer = Effect.fn("buildServer")(function* (verbose: boolean) {
   }
 });
 
-const withServerPackageVersion = <A, E, R>(version: string, effect: Effect.Effect<A, E, R>) =>
-  Effect.gen(function* () {
-    const path = yield* Path.Path;
-    const fs = yield* FileSystem.FileSystem;
-    const repoRoot = yield* RepoRoot;
-    const packageJsonPath = path.join(repoRoot, "apps/server/package.json");
-    const versionEntry = `"version": "${serverPackageJson.version}"`;
-
-    yield* Effect.acquireUseRelease(
-      fs.readFileString(packageJsonPath),
-      (originalPackageJson) =>
-        fs
-          .writeFileString(
-            packageJsonPath,
-            originalPackageJson.replace(versionEntry, `"version": "${version}"`),
-          )
-          .pipe(Effect.andThen(effect)),
-      (originalPackageJson) => fs.writeFileString(packageJsonPath, originalPackageJson),
-    );
-  });
-
 const buildCmd = Command.make(
   "build",
   {
-    appVersion: Flag.string("app-version").pipe(Flag.optional),
-    verbose: Flag.boolean("verbose").pipe(Flag.withDefault(false)),
+    appVersion: Flag.String("app-version").pipe(Flag.optional),
+    verbose: Flag.Boolean("verbose").pipe(Flag.withDefault(false)),
   },
-  (config) =>
-    Effect.gen(function* () {
-      const appVersion = Option.getOrUndefined(config.appVersion);
-      yield* appVersion === undefined
-        ? buildServer(config.verbose)
-        : withServerPackageVersion(appVersion, buildServer(config.verbose));
-    }),
+  (config) => {
+    const appVersion = Option.getOrUndefined(config.appVersion);
+    const build = buildServer(config.verbose);
+    return appVersion === undefined ? build : withServerPackageVersion(appVersion, build);
+  },
 ).pipe(Command.withDescription("Build the server package (tsdown + bundle web client)."));
 
 // ---------------------------------------------------------------------------
-// Package subcommands
-// ---------------------------------------------------------------------------
-
-interface PreparedPackageCommandConfig {
-  readonly args: ReadonlyArray<string>;
-  readonly label: string;
-  readonly verbose: boolean;
-  readonly version: string;
-}
-
-const runPreparedPackageCommand = Effect.fn("runPreparedPackageCommand")(function* (
-  config: PreparedPackageCommandConfig,
-) {
-  const path = yield* Path.Path;
-  const fs = yield* FileSystem.FileSystem;
-  const repoRoot = yield* RepoRoot;
-  const serverDir = path.join(repoRoot, "apps/server");
-  const packageJsonPath = path.join(serverDir, "package.json");
-
-  for (const relPath of ["dist/bin.mjs", "dist/client/index.html"]) {
-    const abs = path.join(serverDir, relPath);
-    if (!(yield* fs.exists(abs))) {
-      return yield* new ServerCliBuildAssetMissingError({ assetPath: abs });
-    }
-  }
-
-  yield* Effect.acquireUseRelease(
-    Effect.gen(function* () {
-      const workspaceConfig = yield* readWorkspaceConfig();
-      const workspaceCatalog = workspaceConfig.catalog ?? {};
-      const workspaceOverrides = workspaceConfig.overrides ?? {};
-      const pkg: PackageJson = {
-        name: serverPackageJson.name,
-        repository: serverPackageJson.repository,
-        bin: serverPackageJson.bin,
-        type: serverPackageJson.type,
-        version: config.version,
-        engines: serverPackageJson.engines,
-        files: serverPackageJson.files,
-        dependencies: resolveCatalogDependencies(
-          serverPackageJson.dependencies,
-          workspaceCatalog,
-          "apps/server",
-        ),
-        overrides: resolveCatalogDependencies(workspaceOverrides, workspaceCatalog, "apps/server"),
-      };
-
-      return {
-        packageJsonString: yield* encodePackageJson(pkg),
-        originalPackageJson: yield* fs.readFile(packageJsonPath),
-        icons: yield* preparePublishIcons(repoRoot, serverDir, config.version),
-      };
-    }),
-    (resource) =>
-      Effect.gen(function* () {
-        yield* fs.writeFileString(packageJsonPath, `${resource.packageJsonString}\n`);
-        for (const icon of resource.icons) {
-          yield* fs.writeFile(icon.targetPath, icon.publish);
-        }
-        yield* Effect.log("[cli] Applied package metadata and publish icon overrides");
-
-        const spawnCommand = yield* resolveSpawnCommand("vp", ["pm", ...config.args]);
-        yield* Effect.log(`[cli] Running: ${config.label}`);
-        yield* runCommand(
-          ChildProcess.make(spawnCommand.command, spawnCommand.args, {
-            cwd: repoRoot,
-            stdout: config.verbose ? "inherit" : "ignore",
-            stderr: "inherit",
-            shell: spawnCommand.shell,
-          }),
-        );
-      }),
-    (resource) =>
-      Effect.gen(function* () {
-        yield* fs.writeFile(packageJsonPath, resource.originalPackageJson);
-        for (const icon of resource.icons) {
-          yield* fs.writeFile(icon.targetPath, icon.original);
-        }
-        if (config.verbose) yield* Effect.log("[cli] Restored original package assets");
-      }),
-  );
-});
-
-const packCmd = Command.make(
-  "pack",
-  {
-    appVersion: Flag.string("app-version").pipe(Flag.optional),
-    out: Flag.string("out"),
-    verbose: Flag.boolean("verbose").pipe(Flag.withDefault(false)),
-  },
-  (config) => {
-    const version = Option.getOrElse(config.appVersion, () => serverPackageJson.version);
-    const args = ["pack", "--filter", "t3", "--out", config.out];
-    return runPreparedPackageCommand({
-      args,
-      label: `vp pm ${args.join(" ")}`,
-      verbose: config.verbose,
-      version,
-    });
-  },
-).pipe(Command.withDescription("Pack the server package for local installation."));
-
 // build-exe subcommand
 // ---------------------------------------------------------------------------
 
 const buildExecutable = Effect.fn("buildExecutable")(function* (config: {
-  readonly verbose: boolean;
   readonly target: Option.Option<string>;
+  readonly verbose: boolean;
 }) {
   const path = yield* Path.Path;
   const fs = yield* FileSystem.FileSystem;
@@ -355,9 +178,9 @@ const buildExecutable = Effect.fn("buildExecutable")(function* (config: {
 const buildExeCmd = Command.make(
   "build-exe",
   {
-    appVersion: Flag.string("app-version").pipe(Flag.optional),
-    verbose: Flag.boolean("verbose").pipe(Flag.withDefault(false)),
-    target: Flag.string("target").pipe(
+    appVersion: Flag.String("app-version").pipe(Flag.optional),
+    verbose: Flag.Boolean("verbose").pipe(Flag.withDefault(false)),
+    target: Flag.String("target").pipe(
       Flag.withDescription(
         "Cross-build for <platform>-<arch> in nodejs.org naming (for example darwin-x64); defaults to the host.",
       ),
@@ -389,14 +212,14 @@ const buildExeCmd = Command.make(
 const publishCmd = Command.make(
   "publish",
   {
-    packagesDir: Flag.string("packages-dir").pipe(
+    packagesDir: Flag.String("packages-dir").pipe(
       Flag.withDescription("Output dir of scripts/build-npm-platform-packages.ts."),
     ),
-    tag: Flag.string("tag").pipe(Flag.withDefault("latest")),
-    access: Flag.string("access").pipe(Flag.withDefault("public")),
-    provenance: Flag.boolean("provenance").pipe(Flag.withDefault(false)),
-    dryRun: Flag.boolean("dry-run").pipe(Flag.withDefault(false)),
-    verbose: Flag.boolean("verbose").pipe(Flag.withDefault(false)),
+    tag: Flag.String("tag").pipe(Flag.withDefault("latest")),
+    access: Flag.String("access").pipe(Flag.withDefault("public")),
+    provenance: Flag.Boolean("provenance").pipe(Flag.withDefault(false)),
+    dryRun: Flag.Boolean("dry-run").pipe(Flag.withDefault(false)),
+    verbose: Flag.Boolean("verbose").pipe(Flag.withDefault(false)),
   },
   (config) =>
     Effect.gen(function* () {
@@ -450,8 +273,8 @@ const publishCmd = Command.make(
 // ---------------------------------------------------------------------------
 
 const cli = Command.make("cli").pipe(
-  Command.withDescription("T3 server build, pack, and publish CLI."),
-  Command.withSubcommands([buildCmd, buildExeCmd, packCmd, publishCmd]),
+  Command.withDescription("T3 server build & publish CLI."),
+  Command.withSubcommands([buildCmd, buildExeCmd, publishCmd]),
 );
 
 Command.run(cli, { version: "0.0.0" }).pipe(

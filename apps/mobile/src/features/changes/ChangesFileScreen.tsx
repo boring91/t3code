@@ -26,7 +26,6 @@ import { AppText as Text } from "../../components/AppText";
 import { SymbolView } from "../../components/AppSymbol";
 import { ControlPill, ControlPillMenu } from "../../components/ControlPill";
 import { GlassSurface } from "../../components/GlassSurface";
-import { useUniwindTheme } from "../../lib/useUniwindTheme";
 import { NativeHeaderToolbar } from "../../native/StackHeader";
 import { useEnvironmentQuery } from "../../state/query";
 import { useAtomCommand } from "../../state/use-atom-command";
@@ -96,7 +95,6 @@ function FileNavigationButton(props: {
   readonly icon: "chevron.left" | "chevron.right";
   readonly onPress: () => void;
 }) {
-  const iconColor = String(useUniwindTheme()["--color-icon"]);
   if (Platform.OS !== "ios") return <ControlPill {...props} />;
 
   return (
@@ -119,7 +117,12 @@ function FileNavigationButton(props: {
           justifyContent: "center",
         }}
       >
-        <SymbolView name={props.icon} size={16} tintColor={iconColor} type="monochrome" />
+        <SymbolView
+          name={props.icon}
+          size={16}
+          tintColorClassName="accent-icon"
+          type="monochrome"
+        />
       </GlassSurface>
     </Pressable>
   );
@@ -131,7 +134,6 @@ export function ChangesFileScreen(props: ChangesFileScreenProps) {
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
   const { themeAppearance: selectedTheme } = useAppearancePreferences();
-  const iconColor = String(useUniwindTheme()["--color-icon"]);
   const { nativeReviewDiffStyle } = useAppearanceCodeSurface();
   const { selectedThreadCwd } = useSelectedThreadWorktree();
   const cwd = selectedThreadCwd;
@@ -558,17 +560,15 @@ export function ChangesFileScreen(props: ChangesFileScreenProps) {
         />
       ) : null}
       {stale ? (
-        <View className="flex-row items-center justify-between border-b border-amber-300 bg-amber-100 px-4 py-3 dark:border-amber-800 dark:bg-amber-950">
-          <Text className="text-sm font-t3-bold text-amber-900 dark:text-amber-100">
-            File changed
-          </Text>
+        <View className="flex-row items-center justify-between border-b border-warning-border bg-warning px-4 py-3">
+          <Text className="text-sm font-t3-bold text-warning-foreground">File changed</Text>
           <Pressable
             onPress={() => {
               if (expectedChange) navigateTo(expectedChange);
               else navigation.goBack();
             }}
           >
-            <Text className="text-xs font-t3-bold text-amber-900 dark:text-amber-100">Reload</Text>
+            <Text className="text-xs font-t3-bold text-warning-foreground">Reload</Text>
           </Pressable>
         </View>
       ) : null}
@@ -621,7 +621,7 @@ export function ChangesFileScreen(props: ChangesFileScreenProps) {
               }}
             >
               <Pressable accessibilityLabel="Diff options" hitSlop={8}>
-                <SymbolView name="ellipsis" size={18} tintColor={iconColor} />
+                <SymbolView name="ellipsis" size={18} tintColorClassName="accent-icon" />
               </Pressable>
             </ControlPillMenu>
           </View>
@@ -695,7 +695,7 @@ export function ChangesFileScreen(props: ChangesFileScreenProps) {
           >
             <View
               pointerEvents="none"
-              className="relative h-full w-3 rounded-full bg-black/10 dark:bg-white/10"
+              className="relative h-full w-3 rounded-full bg-subtle-strong"
             >
               {markers.map((marker) => (
                 <View
@@ -727,7 +727,7 @@ export function ChangesFileScreen(props: ChangesFileScreenProps) {
           }}
         />
         <ControlPill
-          icon={layer === "unstaged" ? "plus.circle" : "minus.circle"}
+          icon={layer === "unstaged" ? "plus" : "minus"}
           label={layer === "unstaged" ? "Stage" : "Unstage"}
           variant="primary"
           disabled={stale || loading || mutating}

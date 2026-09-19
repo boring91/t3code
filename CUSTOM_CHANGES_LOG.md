@@ -3,8 +3,13 @@
 This file tracks intentional changes carried by this fork. When syncing from `upstream`, compare each
 entry with upstream and keep only the behavior that upstream has not replaced.
 
-Upstream was last synced at `pingdotgg/t3code@a62e7d670` on 2026-09-15. It still does not include the
+Upstream was last synced at `pingdotgg/t3code@cb3d95c174` on 2026-09-19. It still does not include the
 mobile Changes workflow or its change-file, stage, and unstage RPCs.
+
+## Upstream exclusions
+
+- Do not merge or enable Orchestrator v2. Keep the shipped v1 orchestration path unless the user
+  explicitly reverses this decision.
 
 ## Custom release workflow
 

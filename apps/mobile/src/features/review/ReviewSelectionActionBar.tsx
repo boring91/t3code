@@ -16,7 +16,7 @@ export function ReviewSelectionActionBar(props: {
       <SymbolView
         name={props.onOpenComment ? "text.bubble" : "line.3.horizontal.decrease.circle"}
         size={16}
-        tintColorClassName={"accent-primary-foreground"}
+        tintColorClassName="accent-primary-foreground"
         type="monochrome"
       />
       <Text className="text-base font-t3-bold text-primary-foreground">{props.title}</Text>
@@ -56,7 +56,7 @@ export function ReviewSelectionActionBar(props: {
         <SymbolView
           name="xmark"
           size={16}
-          tintColorClassName={"accent-primary-foreground"}
+          tintColorClassName="accent-primary-foreground"
           type="monochrome"
         />
       </Pressable>

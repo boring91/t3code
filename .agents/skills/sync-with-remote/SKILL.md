@@ -31,7 +31,10 @@ terminal condition.
    - the intersection of those file sets;
    - each behavior in `CUSTOM_CHANGES_LOG.md`, searching upstream for semantic equivalents even
      when upstream changed different files.
-4. Summarize the incoming features, likely conflicts, and custom behaviors that upstream now
+4. Treat entries under `Upstream exclusions` in `CUSTOM_CHANGES_LOG.md` as hard merge gates. If
+   upstream includes an excluded change, stop before merging and report the exact commits and
+   affected files.
+5. Summarize the incoming features, likely conflicts, and custom behaviors that upstream now
    replaces. Continue with the sync unless preserving a custom behavior requires a product choice
    the user has not made.
 
