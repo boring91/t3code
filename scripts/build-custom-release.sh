@@ -27,6 +27,7 @@ for command_name in git plutil shasum tar vp xcodebuild; do
     exit 1
   fi
 done
+vp_cli="${VP_CLI_BIN:-$(command -v vp)}"
 
 release_version="${T3CODE_RELEASE_VERSION:-${T3CODE_DESKTOP_VERSION:-}}"
 if [[ -z "$release_version" ]]; then
@@ -118,7 +119,7 @@ node "$repo_root/apps/server/scripts/cli.ts" build \
 official_server_package=""
 for _ in 1 2 3; do
   official_server_package="$(
-    vp env exec --node 24.21.0 npm pack "@t3code/t3-linux-x64@$release_version" \
+    "$vp_cli" env exec --node 24.21.0 npm pack "@t3code/t3-linux-x64@$release_version" \
       --pack-destination "$staging_dir" \
       --silent 2>/dev/null || true
   )"
@@ -149,7 +150,6 @@ else
   exit 1
 fi
 rm -f -- "$server_package_path"
-vp_cli="${VP_CLI_BIN:-$(command -v vp)}"
 sea_node="$("$vp_cli" env exec --node 26.8.2 node -p 'process.execPath')"
 PATH="$repo_root/node_modules/.bin:$(dirname "$sea_node"):$PATH" \
   VP_NODE_VERSION=26.8.2 \
