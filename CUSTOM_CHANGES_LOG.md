@@ -3,7 +3,7 @@
 This file tracks intentional changes carried by this fork. When syncing from `upstream`, compare each
 entry with upstream and keep only the behavior that upstream has not replaced.
 
-Upstream was last synced at `pingdotgg/t3code@5378f87f99` on 2026-09-19. It still does not include the
+Upstream was last synced at `pingdotgg/t3code@aff9318bf4` on 2026-09-22. It still does not include the
 mobile Changes workflow or its change-file, stage, and unstage RPCs.
 
 ## Upstream exclusions
@@ -31,7 +31,8 @@ mobile Changes workflow or its change-file, stage, and unstage RPCs.
 ## Mobile Git Changes workflow
 
 - Adds mobile Staged and Unstaged trees, on-demand full-file diffs, native overview rails, file and
-  folder staging controls, stale-snapshot protection, and staged-index-aware commits.
+  folder staging controls, stale-snapshot protection, and staged-index-aware commits. The full-file
+  viewer reuses upstream's native word-wrap layout.
 - Adds capability-gated batch stage and unstage RPCs. New servers validate the whole selection and
   update it as one batch operation; mobile falls back to sequential one-file requests on older
   servers.

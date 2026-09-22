@@ -49,10 +49,6 @@ public class T3ReviewDiffModule: Module {
         view.setContentWidth(CGFloat(contentWidth))
       }
 
-      Prop("wrapLines") { (view: T3ReviewDiffView, wrapLines: Bool) in
-        view.setWrapLines(wrapLines)
-      }
-
       Prop("initialRowIndex") { (view: T3ReviewDiffView, initialRowIndex: Double) in
         view.setInitialRowIndex(initialRowIndex)
       }

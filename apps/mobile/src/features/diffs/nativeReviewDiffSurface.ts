@@ -122,7 +122,6 @@ export interface NativeReviewDiffViewProps extends ViewProps {
   readonly styleJson?: string;
   readonly rowHeight: number;
   readonly contentWidth: number;
-  readonly wrapLines?: boolean;
   readonly initialRowIndex?: number;
   readonly refreshing?: boolean;
   readonly nativeViewRef?: Ref<NativeReviewDiffViewHandle>;

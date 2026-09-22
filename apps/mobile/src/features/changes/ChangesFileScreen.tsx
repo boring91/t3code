@@ -303,6 +303,10 @@ export function ChangesFileScreen(props: ChangesFileScreenProps) {
     selectedRowIds,
     canHighlight: parsedDiff.kind === "files",
   });
+  const nativeStyleJson = useMemo(
+    () => JSON.stringify({ ...nativeReviewDiffStyle, wordWrap: wrap }),
+    [nativeReviewDiffStyle, wrap],
+  );
   const NativeDiffView = resolveNativeReviewDiffView();
   const initialRowIndex = useMemo(
     () => savedRowByFile.current.get(visitKey) ?? firstChangedRowIndex(nativeData.rows),
@@ -660,13 +664,12 @@ export function ChangesFileScreen(props: ChangesFileScreenProps) {
             collapsedCommentIdsJson={nativeBridge.collapsedCommentIdsJson}
             contentResetKey={contentKey}
             contentWidth={wrap ? Math.max(surfaceWidth, 320) : NATIVE_REVIEW_DIFF_CONTENT_WIDTH}
-            wrapLines={wrap}
             initialRowIndex={initialRowIndex}
             nativeViewRef={nativeRef}
             rowHeight={nativeReviewDiffStyle.rowHeight}
             rowsJson={nativeBridge.rowsJson}
             selectedRowIdsJson={nativeBridge.selectedRowIdsJson}
-            styleJson={nativeBridge.styleJson}
+            styleJson={nativeStyleJson}
             themeJson={nativeBridge.themeJson}
             tokensPatchJson={nativeBridge.tokensPatchJson}
             tokensResetKey={nativeBridge.tokensResetKey}
